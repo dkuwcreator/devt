@@ -1,0 +1,12 @@
+{
+    "name": "Test CLI",
+    "description": "This is a test CLI tool for testing purposes.",
+    "dependencies": {},
+    "command": "test",
+    "scripts": {
+        "install": "echo 'You 'RAN' the install script.'",
+        "uninstall": "echo 'You 'RAN' the uninstall script.'",
+        "upgrade": "echo 'You 'RAN' the upgrade script.'",
+        "test": "echo 'You 'RAN' the test script.'"
+    }	
+}

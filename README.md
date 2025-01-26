@@ -57,7 +57,7 @@ Each tool package resides in its own directory and must include the following co
 ├── manifest.json
 ├── scripts/
 │   ├── install.sh
-│   ├── update.sh
+│   ├── upgrade.sh
 │   └── uninstall.sh
 └── resources/
     └── company_cert.pem
@@ -69,7 +69,7 @@ The `manifest.json` specifies the following:
 
 - **Name and Description**: Metadata about the tool.
 - **Dependencies**: Other tools or system requirements.
-- **Scripts**: Paths to scripts for various operations (e.g., install, update, uninstall, test, version).
+- **Scripts**: Paths to scripts for various operations (e.g., install, upgrade, uninstall, test, version).
 - **Path Resolution**: Mechanisms for resolving paths to scripts and resources.
 
 **Example `manifest.json`:**
@@ -77,16 +77,19 @@ The `manifest.json` specifies the following:
 ```json
 {
   "name": "Example Tool",
-  "description": "A sample tool with scripts for installation and updates.",
+  "description": "A sample tool with scripts for installation and updates.", # Optional
+  "command": "tool-cli",
+  "base_dir": ".", # Optional
   "dependencies": {
-    "python": ">=3.6"
-  },
+    "python": ">=3.6",
+    "pip": ">=20.0"
+  }, # Optional
   "scripts": {
-    "install": "./scripts/install.sh",
-    "uninstall": "./scripts/uninstall.sh",
-    "upgrade": "tool-cli --upgrade",
-    "version": "tool-cli --version",
-    "test": "tool-cli --test"
+    "install": "pip install example-tool", # Mandatory
+    "uninstall": "pip uninstall example-tool", # Mandatory
+    "upgrade": "pip install --upgrade example-tool", # Mandatory
+    "version": "tool-cli --version", # Mandatory
+    "test": "tool-cli --test" # Mandatory
   }
 }
 ```
@@ -104,16 +107,30 @@ Mandatory fields in the `manifest.json` include `name`, `dependencies`, and `scr
 ```json
 {
   "name": "Cross-Platform Tool",
+  "command": "tool-cli",
   "scripts": {
     "windows": {
       "install": "./scripts/install.ps1",
-      "update": "./scripts/update.ps1"
+      "upgrade": "./scripts/upgrade.ps1"
     },
     "posix": {
-      "install": "./scripts/install.sh",
-      "update": "./scripts/update.sh"
-    }
+      "upgrade": "./scripts/upgrade.sh"
+    },
+    "install": "./scripts/install.sh",
+    "uninstall": "./scripts/uninstall.sh",
+    "version": "tool-cli --version",
+    "test": "tool-cli --test"
   }
+}
+```
+
+On Windows, `devt` executes the `install.ps1` script for installation and the `upgrade.ps1` script for upgrades. On macOS and Linux, it runs the `install.sh` and `upgrade.sh` scripts, respectively. The `test` script is common to all platforms.
+
+```json
+{
+  "install": "./scripts/install.ps1",
+  "update": "./scripts/update.ps1",
+  "test": "tool-cli --test"
 }
 ```
 
@@ -174,13 +191,13 @@ utilities_repo/
 To add the company’s `utilities_repo` to the local `devt` directory:
 
 ```bash
-devt add --repo https://example.com/utilities_repo
+devt add https://example.com/utilities_repo
 ```
 
 This command clones the repository and syncs it locally. Alternatively, add a local directory: This option is useful when you have custom or experimental tools that are not yet part of a shared repository or when you prefer faster access and modifications without relying on a remote server.
 
 ```bash
-devt add --local /path/to/local/package
+devt add /path/to/local/package
 ```
 
 `devt` manages tools via a `registry.json` file. To view available tools:
@@ -225,13 +242,13 @@ The standard commands for script execution include:
 With `devt`, you can execute any tool directly from the command line by running:
 
 ```bash
-devt run <tool> <script>
+devt do <tool> <script>
 ```
 
 For example, to execute the `deploy` script in the `azd` package, you would run:
 
 ```bash
-devt run azd deploy
+devt do azd deploy
 ```
 
 `devt` intelligently resolves all underlying operating system dependencies and executes the appropriate script for your environment. This eliminates the need for developers to worry about platform-specific commands or configurations.
@@ -287,4 +304,3 @@ devt run test
 Other commands:
 
 - `devt init`: Initializes a project with `devt.json`.
-

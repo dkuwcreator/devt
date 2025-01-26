@@ -1,0 +1,12 @@
+{
+    "name": "My Workspace",
+    "description": "This is my workspace. There are many like it, but this one is mine.",
+    "dependencies": {
+        "python": "^3.9.0",
+        "pip": "^21.0.0"
+    },
+    "scripts": {
+        "build": "pip install .",
+        "testy": "devt run test testy"
+    }
+}
