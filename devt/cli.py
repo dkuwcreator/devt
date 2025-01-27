@@ -1,6 +1,9 @@
+# DevT CLI Tool - Improved Structure
+
+# 1. Constants and Directory Setup
 import logging
 import os
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pathlib import Path
 import shutil
 import winreg
@@ -11,9 +14,7 @@ from datetime import datetime
 import typer
 from git import Repo
 
-# Environment
-
-# Constants
+# Directories and Constants
 USER_APP_DIR = Path(typer.get_app_dir(".devt"))
 TOOLS_DIR = USER_APP_DIR / "tools"
 REPOS_DIR = USER_APP_DIR / "repos"
@@ -24,37 +25,30 @@ REGISTRY_FILE = USER_APP_DIR / "registry.json"
 
 WORKSPACE_DIR = Path.cwd()
 WORKSPACE_FILE = WORKSPACE_DIR / "workspace.json"
-
 WORKSPACE_APP_DIR = WORKSPACE_DIR / ".devt"
 WORKSPACE_TOOLS_DIR = WORKSPACE_APP_DIR / "tools"
 WORKSPACE_REPOS_DIR = WORKSPACE_APP_DIR / "repos"
 WORKSPACE_REGISTRY_FILE = WORKSPACE_APP_DIR / "registry.json"
 
-
 # Ensure directories exist
 USER_APP_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
+# 2. Logging Configuration
 # Create a logger
 logger = logging.getLogger("devt")
-
-# Set the logging level
 logger.setLevel(logging.INFO)
 
-# Create a file handler and a stream handler
+# Handlers
 file_handler = logging.FileHandler(LOG_FILE)
 stream_handler = logging.StreamHandler()
-
-# Create a formatter and attach it to the handlers
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 file_handler.setFormatter(formatter)
 stream_handler.setFormatter(formatter)
-
-# Add the handlers to the logger
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
-# To set the log level dynamically, you can use the following function
+
 def set_log_level(level: str):
     """
     Set the log level dynamically.
@@ -74,15 +68,49 @@ def set_log_level(level: str):
         logger.error(f"Invalid log level: {level}")
 
 
+# 3. Utility Functions
+# Function to load JSON data from a file
+def load_json(file_path: Path) -> Dict:
+    try:
+        with open(file_path, "r") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding JSON in {file_path}: {e}")
+        return {}
 
 
+# Function to save JSON data to a file
+def save_json(file_path, data):
+    with open(file_path, "w") as file:
+        json.dump(data, file, indent=4)
+
+
+def merge_dicts(*dicts: Dict) -> Dict:
+    """
+    Merge multiple dictionaries into one.
+    """
+    result = {}
+    for dictionary in dicts:
+        result.update(dictionary)
+    return result
+
+
+# Determine if the source is a URL or local path
+def determine_source(source: str):
+    parsed_url = urlparse(source)
+    if parsed_url.scheme and parsed_url.netloc:
+        return "repo"
+    if Path(source).exists():
+        return "local"
+    return None
+
+
+# 4. Environment Setup
 def set_user_environment_var(name: str, value: str):
     """
     Set a user environment variable that persists across sessions.
-
-    Args:
-        name (str): The name of the environment variable.
-        value (str): The value of the environment variable.
     """
     try:
         with winreg.OpenKey(
@@ -99,22 +127,15 @@ def setup_environment():
     Initialize the environment by creating necessary directories and
     setting environment variables.
     """
-
-    # Ensure directories exist
     USER_APP_DIR.mkdir(parents=True, exist_ok=True)
     TOOLS_DIR.mkdir(parents=True, exist_ok=True)
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Load the configuration
-    # config = Config(USER_APP_DIR)
-
-    # Set environment variables for the current session
     os.environ["DEVT_USER_APP_DIR"] = str(USER_APP_DIR)
     os.environ["DEVT_TOOLS_DIR"] = str(TOOLS_DIR)
     os.environ["DEVT_WORKSPACE_DIR"] = str(WORKSPACE_DIR)
 
-    # Set user-level environment variables
     set_user_environment_var("DEVT_USER_APP_DIR", str(USER_APP_DIR))
     set_user_environment_var("DEVT_TOOLS_DIR", str(TOOLS_DIR))
     set_user_environment_var("DEVT_WORKSPACE_DIR", str(WORKSPACE_DIR))
@@ -122,12 +143,7 @@ def setup_environment():
     logger.info("Environment variables set successfully")
 
 
-# Package Management
-
-
-# Package Management
-
-
+# 5. Package Management
 def clone_or_update_repo(repo_url: str, base_dir: Path):
     """
     Add a repository by cloning or updating.
@@ -158,9 +174,6 @@ def add_local(local_path: str, base_dir: Path):
     if destination.exists():
         logger.warning("Tool '%s' already exists. Overwriting...", source_path.name)
 
-    # if source_path.samefile(destination):
-    #     raise ValueError("Error: Source and destination paths are the same.")
-
     shutil.copytree(source_path, destination, dirs_exist_ok=True)
     return destination
 
@@ -177,7 +190,6 @@ def update_registry(tool_dir: Path, registry_file: Path, repo: str = None):
     with open(manifest_path, "r") as file:
         manifest = json.load(file)
 
-    # Check if the manifest has the required fields
     required_fields = ["name", "command", "scripts"]
     missing_fields = [field for field in required_fields if field not in manifest]
     if missing_fields:
@@ -194,67 +206,11 @@ def update_registry(tool_dir: Path, registry_file: Path, repo: str = None):
     save_json(registry_file, registry)
 
 
-# Utilities
-
-
-# Function to load JSON data from a file
-def load_json(file_path: Path) -> Dict:
-    try:
-        with open(file_path, "r") as file:
-            return json.load(file)
-    except FileNotFoundError:
-        return {}
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON in {file_path}: {e}")
-        return {}
-
-
-# Function to save JSON data to a file
-def save_json(file_path, data):
-    with open(file_path, "w") as file:
-        json.dump(data, file, indent=4)
-
-
-# Registry
-
-
-def merge_dicts(*dicts: Dict) -> Dict:
-    """
-    Merge multiple dictionaries into one.
-    Args:
-        *dicts (Dict): Dictionaries to merge.
-    Returns:
-        Dict: Merged dictionary.
-    """
-    result = {}
-    for dictionary in dicts:
-        result.update(dictionary)
-    return result
-
-
-# Determine if the source is a URL or local path
-def determine_source(source: str):
-    parsed_url = urlparse(source)
-    if parsed_url.scheme and parsed_url.netloc:
-        return "repo"
-    if Path(source).exists():
-        return "local"
-    return None
-
-
 # APP
 
-
-def merge_registries():
-    return merge_dicts(
-        load_json(REGISTRY_FILE),
-        load_json(WORKSPACE_REGISTRY_FILE),
-    )
-
-
-TOOL_REGISTRY = merge_registries()
-
 app = typer.Typer()
+
+# Package Management
 
 
 @app.command()
@@ -271,12 +227,16 @@ def add(
     source_type = determine_source(source)
     if source_type == "repo":
         repo_dir = clone_or_update_repo(source, base_dir)
-        for tool_dir in repo_dir.rglob("manifest.json"):
-            update_registry(tool_dir.parent, registry_file, source)
+        for tool in repo_dir.rglob("manifest.json"):
+            update_registry(tool.parent, registry_file, source)
 
     elif source_type == "local":
         tool_dir = add_local(source, base_dir)
-        update_registry(tool_dir, registry_file)
+        if (tool_dir / "manifest.json").exists():
+            update_registry(tool_dir, registry_file)
+        else:
+            for tool in tool_dir.rglob("manifest.json"):
+                update_registry(tool.parent, registry_file)
     else:
         raise ValueError(f"Error: Could not determine the type of source '{source}'.")
 
@@ -316,6 +276,9 @@ def list_tools():
         typer.echo(f" - {tool_name} [{level}] : {tool_data['location']}")
 
 
+# Run Scripts
+
+
 @app.command()
 def do(
     tool_name: str = typer.Argument(..., help="The tool to run the script for."),
@@ -333,16 +296,24 @@ def do(
     """
     user_registry = load_json(REGISTRY_FILE)
     workspace_registry = load_json(WORKSPACE_REGISTRY_FILE)
-    merged_registry = merge_dicts(user_registry, workspace_registry)
+    workspace_package = {
+        "workspace": {
+            "manifest": load_json(WORKSPACE_FILE),
+        }
+    }
+    merged_registry = merge_dicts(user_registry, workspace_registry, workspace_package)
 
     tool = merged_registry.get(tool_name)
     if not tool:
         raise ValueError(f"Error: Tool '{tool_name}' not found.")
 
-    tool_dir = (
-        Path(WORKSPACE_APP_DIR if tool_name in workspace_registry else USER_APP_DIR)
-        / tool["location"]
-    )
+    if tool_name == "workspace":
+        tool_dir = WORKSPACE_DIR
+    else:
+        tool_dir = (
+            Path(WORKSPACE_APP_DIR if tool_name in workspace_registry else USER_APP_DIR)
+            / tool["location"]
+        )
     base_dir = tool.get("manifest").get("base_dir", ".")
     new_cwd = tool_dir / base_dir
     repo = tool.get("repo")
@@ -362,6 +333,9 @@ def do(
     if not script:
         raise ValueError(f"Script '{script_name}' not found for tool '{tool_name}'")
 
+    if additional_args is not None:
+        additional_args = [additional_args]
+
     # Combine script and additional arguments
     command = [script] + (additional_args if additional_args else [])
 
@@ -374,13 +348,18 @@ def do(
 
 
 @app.command()
-def run(script_name: str):
+def run(
+    script_name: str = typer.Argument(..., help="The name of the script to run."),
+    additional_args: Optional[List[str]] = typer.Argument(
+        None, help="Additional arguments to pass to the script."
+    ),
+):
     """
     Run a specified script for the given tools.
     Args:
         script_name (str): The name of the script to run from the workspace.
     """
-    do(script_name, ["workspace"])
+    do("workspace", script_name, additional_args)
 
 
 @app.command()
@@ -392,7 +371,8 @@ def install(
     Args:
         tools (List[str]): List of tool names to install.
     """
-    do("install", tools)
+    for tool in tools:
+        do(tool, "install")
 
 
 @app.command()
@@ -404,7 +384,8 @@ def uninstall(
     Args:
         tools (List[str]): List of tool names to uninstall.
     """
-    do("uninstall", tools)
+    for tool in tools:
+        do(tool, "uninstall")
 
 
 @app.command()
@@ -416,7 +397,8 @@ def upgrade(
     Args:
         tools (List[str]): List of tool names to upgrade.
     """
-    do("upgrade", tools)
+    for tool in tools:
+        do(tool, "upgrade")
 
 
 @app.command()
@@ -430,7 +412,8 @@ def version(
     Args:
         tools (List[str]): List of tool names to display the version for.
     """
-    do("version", tools)
+    for tool in tools:
+        do(tool, "version")
 
 
 @app.command()
@@ -444,7 +427,11 @@ def test(
     Args:
         tools (List[str]): List of tool names to run the test for.
     """
-    do("test", tools)
+    for tool in tools:
+        do(tool, "test")
+
+
+# Initialize Workspace
 
 
 @app.command()
@@ -453,15 +440,23 @@ def init():
     Initialize the environment and repository as required.
     """
     logger.info("Initializing the environment...")
-    git_tool = TOOL_REGISTRY.get("git")
-    vscode_tool = TOOL_REGISTRY.get("vscode")
-    cwd = Path.cwd()
+    user_registry = load_json(REGISTRY_FILE)
+    workspace_registry = load_json(WORKSPACE_REGISTRY_FILE)
+    workspace_package = {
+        "workspace": {
+            "manifest": load_json(WORKSPACE_FILE),
+        }
+    }
+    merged_registry = merge_dicts(user_registry, workspace_registry, workspace_package)
+    git_tool = merged_registry.get("git")
+    vscode_tool = merged_registry.get("vscode")
+    cwd = WORKSPACE_DIR
     if (cwd / ".git").exists() and git_tool:
         logger.info("Setting up git configuration...")
-        git_tool.run_script("set")
+        do("git", "set")
     if not (cwd / ".vscode").exists() and vscode_tool:
         logger.info("Setting up VS Code configuration...")
-        vscode_tool.run_script("set")
+        do("vscode", "set")
     logger.info("Repository and tools are ready")
 
 
