@@ -12,13 +12,13 @@ config = dotenv_values("project.env")
 SESSION_CWD = Path(__file__).parent
 VENV_DIR = SESSION_CWD / ".venv"
 
-# Where your package's __init__.py lives
-INIT_FILE = SESSION_CWD / "my_project" / "__init__.py"
-
 # Constants from project.env
 ENTRY_SCRIPT = config.get("ENTRY_SCRIPT", "my_project/cli.py")
 OUTPUT_NAME = config.get("OUTPUT_NAME", "my_tool")
 DIST_DIR = SESSION_CWD / config.get("DIST_DIR", "dist")
+
+# Where your package's __init__.py lives
+INIT_FILE = SESSION_CWD / OUTPUT_NAME / "__init__.py"
 
 VERSION_FILE = SESSION_CWD / ".version"
 
