@@ -1,0 +1,6 @@
+pyinstaller==6.11.1
+pyinstaller-hooks-contrib==2025.1
+setuptools==75.8.0
+typer==0.3.2
+GitPython
+jsonschema

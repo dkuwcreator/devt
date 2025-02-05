@@ -171,8 +171,7 @@ cython_debug/
 .pypirc
 
 # DevTools
-.devt/*
-!.devt/tools/
+.registry/*
 
 # Local Dev
 .local

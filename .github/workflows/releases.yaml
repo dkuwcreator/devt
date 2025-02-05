@@ -1,0 +1,46 @@
+name: Build and Release devtools
+
+on:
+  push:
+    tags:
+      - "v*.*.*"  # Triggers on versioned tags (e.g., v1.0.0)
+
+permissions:
+  contents: write  # Grant permission to create releases
+
+jobs:
+  build:
+    runs-on: windows-latest  # Ensure Windows for `.exe` builds
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Write Version File
+        run: echo "${{ github.ref_name }}" > .version
+
+      - name: Run build script
+        run: |
+          python build.py --ci --clean
+        shell: cmd
+     
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Release ${{ github.ref_name }}"
+          body: "Automated release of devt version ${{ github.ref_name }}."
+          draft: false
+          prerelease: false
+          files: dist/devt.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

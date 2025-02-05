@@ -1,45 +1,42 @@
-# DevT CLI Tool - Improved Structure
-
-# 1. Constants and Directory Setup
+# Updated add.py to calculate relative path from registry.json to manifest.json
 import logging
 import os
-from typing import List, Dict, Optional
+import shlex
+import subprocess
+from typing import Dict, List, Optional
 from pathlib import Path
 import shutil
-import winreg
 import json
-import subprocess
 from urllib.parse import urlparse
-from datetime import datetime
+from datetime import datetime, timezone
 import typer
 from git import Repo
+from jsonschema import validate, ValidationError
 
 # Directories and Constants
 USER_APP_DIR = Path(typer.get_app_dir(".devt"))
-TOOLS_DIR = USER_APP_DIR / "tools"
-REPOS_DIR = USER_APP_DIR / "repos"
+REGISTRY_DIR = USER_APP_DIR / "registry"
+TOOLS_DIR = REGISTRY_DIR / "tools"
+REPOS_DIR = REGISTRY_DIR / "repos"
+REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 TEMP_DIR = USER_APP_DIR / "temp"
 LOGS_DIR = USER_APP_DIR / "logs"
 LOG_FILE = LOGS_DIR / "devt.log"
-REGISTRY_FILE = USER_APP_DIR / "registry.json"
 
 WORKSPACE_DIR = Path.cwd()
+WORKSPACE_REGISTRY_DIR = WORKSPACE_DIR / ".registry"
+WORKSPACE_TOOLS_DIR = WORKSPACE_REGISTRY_DIR / "tools"
+WORKSPACE_REPOS_DIR = WORKSPACE_REGISTRY_DIR / "repos"
+WORKSPACE_REGISTRY_FILE = WORKSPACE_REGISTRY_DIR / "registry.json"
 WORKSPACE_FILE = WORKSPACE_DIR / "workspace.json"
-WORKSPACE_APP_DIR = WORKSPACE_DIR / ".devt"
-WORKSPACE_TOOLS_DIR = WORKSPACE_APP_DIR / "tools"
-WORKSPACE_REPOS_DIR = WORKSPACE_APP_DIR / "repos"
-WORKSPACE_REGISTRY_FILE = WORKSPACE_APP_DIR / "registry.json"
 
 # Ensure directories exist
 USER_APP_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-# 2. Logging Configuration
-# Create a logger
+# Logger setup
 logger = logging.getLogger("devt")
 logger.setLevel(logging.INFO)
-
-# Handlers
 file_handler = logging.FileHandler(LOG_FILE)
 stream_handler = logging.StreamHandler()
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -49,27 +46,7 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 
-def set_log_level(level: str):
-    """
-    Set the log level dynamically.
-    Args:
-        level (str): The log level to set. Can be 'DEBUG', 'INFO', 'WARNING', 'ERROR', or 'CRITICAL'.
-    """
-    levels = {
-        "DEBUG": logging.DEBUG,
-        "INFO": logging.INFO,
-        "WARNING": logging.WARNING,
-        "ERROR": logging.ERROR,
-        "CRITICAL": logging.CRITICAL,
-    }
-    if level in levels:
-        logger.setLevel(levels[level])
-    else:
-        logger.error(f"Invalid log level: {level}")
-
-
-# 3. Utility Functions
-# Function to load JSON data from a file
+# Utility functions
 def load_json(file_path: Path) -> Dict:
     try:
         with open(file_path, "r") as file:
@@ -81,12 +58,663 @@ def load_json(file_path: Path) -> Dict:
         return {}
 
 
-# Function to save JSON data to a file
 def save_json(file_path, data):
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, "w") as file:
         json.dump(data, file, indent=4)
 
 
+def determine_source(source: str):
+    parsed_url = urlparse(source)
+    if parsed_url.scheme and parsed_url.netloc:
+        return "repo"
+    logger.info("Source is not a URL. Checking if it's a local path...")
+    source_path = Path(source)
+    if source_path.exists():
+        return "local"
+    raise FileNotFoundError(f"Error: The source path '{source}' does not exist.")
+
+
+MANIFEST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "command": {"type": "string"},
+        "scripts": {"type": "object"},
+    },
+    "required": ["name", "command", "scripts"],
+}
+
+
+def validate_manifest(manifest_path: Path):
+    try:
+        with open(manifest_path, "r") as file:
+            manifest = json.load(file)
+
+        validate(instance=manifest, schema=MANIFEST_SCHEMA)
+        scripts = manifest.get("scripts", {})
+
+        # Properly check for install script
+        install_present = (
+            "install" in scripts
+            or "windows" in scripts
+            and "install" in scripts["windows"]
+            or "posix" in scripts
+            and "install" in scripts["posix"]
+        )
+
+        if not install_present:
+            logger.error(f"Manifest scripts: {json.dumps(scripts, indent=4)}")
+            raise ValueError("At least one install script is required in the manifest.")
+
+    except (FileNotFoundError, json.JSONDecodeError, ValidationError) as e:
+        raise ValueError(f"Error validating manifest: {e}")
+
+
+def update_registry_with_workspace(
+    registry_file: Path,
+    registry: Dict,
+    auto_sync: bool = True,
+) -> Dict:
+    """
+    Update the tool registry with information from a manifest file.
+
+    Args:
+        tool_dir (Path): Directory containing the tool.
+        registry_file (Path): Path to the registry JSON file.
+        registry (Dict): Existing registry data.
+        repo (Optional[str]): Repository URL, if applicable.
+
+    Returns:
+        Dict: Updated registry.
+    """
+    if not WORKSPACE_FILE.exists():
+        logger.error("Workspace file not found: %s", WORKSPACE_FILE)
+        return registry
+
+    with WORKSPACE_FILE.open("r") as file:
+        manifest = json.load(file)
+
+    try:
+        location = str(WORKSPACE_FILE.relative_to(registry_file.parent))
+    except ValueError:
+        location = str(WORKSPACE_FILE)
+
+    location_parts = location.split(os.sep)
+    second_position = (
+        location_parts[1] if len(location_parts) > 1 else location_parts[0]
+    )
+
+    registry_entry = {
+        "manifest": manifest,
+        "location": location,
+        "added": datetime.now(timezone.utc).isoformat(),
+        "source": WORKSPACE_DIR,
+        "dir": second_position,
+        "active": True,
+        "auto_sync": auto_sync,
+    }
+    command = "workspace"
+    registry[command] = registry_entry
+    return registry
+
+
+def update_registry(
+    tool_dir: Path,
+    registry_file: Path,
+    registry: Dict,
+    source: str,
+    auto_sync: bool = True,
+) -> Dict:
+    """
+    Update the tool registry with information from a manifest file.
+
+    Args:
+        tool_dir (Path): Directory containing the tool.
+        registry_file (Path): Path to the registry JSON file.
+        registry (Dict): Existing registry data.
+        repo (Optional[str]): Repository URL, if applicable.
+
+    Returns:
+        Dict: Updated registry.
+    """
+    manifest_path = tool_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Missing manifest.json in {tool_dir}.")
+
+    validate_manifest(manifest_path)
+
+    with manifest_path.open("r") as file:
+        manifest = json.load(file)
+
+    try:
+        location = str(manifest_path.relative_to(registry_file.parent))
+    except ValueError:
+        location = str(manifest_path)
+
+    location_parts = location.split(os.sep)
+    second_position = (
+        location_parts[1] if len(location_parts) > 1 else location_parts[0]
+    )
+
+    registry_entry = {
+        "manifest": manifest,
+        "location": location,
+        "added": datetime.now(timezone.utc).isoformat(),
+        "source": source,
+        "dir": second_position,
+        "active": True,
+        "auto_sync": auto_sync,
+    }
+    command = manifest.get("command")
+    if not command:
+        raise KeyError(f"'command' key is missing in manifest: {manifest_path}")
+
+    registry[command] = registry_entry
+    return registry
+
+
+def clone_or_update_repo(repo_url: str, base_dir: Path, branch: str) -> Path:
+    """
+    Clone or update a git repository.
+
+    Args:
+        repo_url (str): URL of the repository.
+        base_dir (Path): Base directory where the repository will be cloned.
+
+    Returns:
+        Path: Path to the repository directory.
+    """
+    repo_name = Path(urlparse(repo_url).path).stem
+    repo_dir = base_dir / "repos" / repo_name
+
+    try:
+        if repo_dir.exists():
+            repo = Repo(repo_dir)
+            if repo.is_dirty():
+                logger.warning(
+                    "Repository %s is dirty. Resetting to a clean state...", repo_name
+                )
+                repo.git.reset("--hard")
+            logger.info("Updating repository %s...", repo_name)
+            repo.remotes.origin.pull()
+        else:
+            logger.info("Cloning repository %s...", repo_url)
+            Repo.clone_from(repo_url, repo_dir)
+    except Exception as e:
+        logger.error("Failed to clone or update repository %s: %s", repo_url, e)
+        raise
+
+    return repo_dir
+
+
+# Package functions
+def add_local(local_path: str, base_dir: Path) -> Path:
+    """
+    Add a local tool to the specified base directory.
+
+    Args:
+        local_path (str): Path to the local tool.
+        base_dir (Path): Base directory for adding the tool.
+
+    Returns:
+        Path: Destination path of the tool.
+    """
+    source_path = Path(local_path).resolve()
+    if not source_path.exists():
+        raise FileNotFoundError(f"Path '{local_path}' does not exist.")
+
+    destination = base_dir / "tools" / source_path.name
+    try:
+        shutil.copytree(source_path, destination, dirs_exist_ok=True)
+    except Exception as e:
+        logger.error(
+            "Failed to copy local path %s to %s: %s", source_path, destination, e
+        )
+        raise
+
+    return destination
+
+
+def add_repository(repo_url: str, base_dir: Path, branch: str) -> Path:
+    """
+    Clone or update a git repository.
+
+    Args:
+        repo_url (str): URL of the repository.
+        base_dir (Path): Base directory where the repository will be cloned.
+        branch (str): Branch name to checkout.
+
+    Returns:
+        Path: Path to the repository directory.
+    """
+    repo_name = Path(urlparse(repo_url).path).stem
+    repo_dir = base_dir / "repos" / repo_name
+
+    try:
+        if repo_dir.exists():
+            repo = Repo(repo_dir)
+            if repo.is_dirty():
+                logger.warning(
+                    "Repository %s is dirty. Resetting to a clean state...", repo_name
+                )
+                repo.git.reset("--hard")
+            logger.info("Updating repository %s...", repo_name)
+            repo.remotes.origin.pull()
+        else:
+            logger.info("Cloning repository %s...", repo_url)
+            Repo.clone_from(repo_url, repo_dir, branch=branch or "main")
+    except Exception as e:
+        logger.error("Failed to clone or update repository %s: %s", repo_url, e)
+        raise
+
+    return repo_dir
+
+
+# Define a helper function to handle read-only files or errors
+def on_exc(func, path, exc):
+    if isinstance(exc, PermissionError):
+        os.chmod(path, 0o777)  # Grant write permissions
+        func(path)  # Retry the operation
+    else:
+        raise exc  # Re-raise any other exception
+
+
+def remove_repository(
+    repo_name: str, base_dir: Path, registry: Dict, registry_file: Path
+):
+    """
+    Remove a repository from the registry.
+
+    Args:
+        repo_name (str): Name of the repository.
+        base_dir (Path): Base directory where repositories are stored.
+        registry (Dict): Existing registry data.
+        registry_file (Path): Path to the registry JSON file.
+    """
+    repo_dir = base_dir / "repos" / repo_name
+    if repo_dir.exists():
+        try:
+            shutil.rmtree(repo_dir, onexc=on_exc)
+            logger.info("Repository %s removed successfully.", repo_name)
+            registry = {
+                key: value
+                for key, value in registry.items()
+                if value.get("dir") != repo_name
+            }
+            save_json(registry_file, registry)
+        except Exception as e:
+            logger.error("Failed to remove repository %s: %s", repo_name, e)
+            raise
+    else:
+        logger.warning("Repository directory not found: %s", repo_dir)
+
+
+def import_local_package(local_path: str, base_dir: Path) -> Path:
+    """
+    Import a local tool package into the registry.
+
+    Args:
+        local_path (str): Path to the local tool package.
+        base_dir (Path): Base directory for the registry.
+
+    Returns:
+        Path: Destination path of the tool.
+    """
+    source_path = Path(local_path).resolve()
+    if not source_path.exists():
+        raise FileNotFoundError(f"Path '{local_path}' does not exist.")
+
+    destination = base_dir / "tools" / source_path.name
+    try:
+        shutil.copytree(source_path, destination, dirs_exist_ok=True)
+        logger.info("Local package imported successfully: %s", source_path.name)
+    except Exception as e:
+        logger.error("Failed to copy local package %s: %s", source_path, e)
+        raise
+
+    return destination
+
+
+def export_local_package(package_name: str, destination_path: str, base_dir: Path):
+    """
+    Export a local tool package from the registry.
+
+    Args:
+        package_name (str): Name of the tool package.
+        destination_path (str): Path where the package should be exported.
+        base_dir (Path): Base directory for the registry.
+    """
+    tool_dir = base_dir / "tools" / package_name
+    destination = Path(destination_path).resolve()
+
+    if not tool_dir.exists():
+        raise FileNotFoundError(f"Tool package '{package_name}' does not exist.")
+
+    try:
+        shutil.copytree(tool_dir, destination, dirs_exist_ok=True)
+        logger.info("Local package exported successfully to %s", destination)
+    except Exception as e:
+        logger.error("Failed to export local package %s: %s", package_name, e)
+        raise
+
+
+def delete_local_package(
+    package_name: str, base_dir: Path, registry: Dict, registry_file: Path
+):
+    """
+    Delete a local tool package from the registry.
+
+    Args:
+        package_name (str): Name of the tool package.
+        base_dir (Path): Base directory for the registry.
+        registry (Dict): Existing registry data.
+        registry_file (Path): Path to the registry JSON file.
+    """
+    tool_dir = base_dir / "tools" / package_name
+    if tool_dir.exists():
+        try:
+            shutil.rmtree(tool_dir)
+            logger.info("Tool package %s removed successfully.", package_name)
+            registry.pop(package_name, None)
+            save_json(registry_file, registry)
+        except Exception as e:
+            logger.error("Failed to remove tool package %s: %s", package_name, e)
+            raise
+    else:
+        logger.warning("Tool package directory not found: %s", tool_dir)
+
+
+def sync_repositories(base_dir: Path):
+    """
+    Sync all repositories in the registry by pulling the latest changes.
+
+    Args:
+        base_dir (Path): Base directory containing the repository folders.
+    """
+    repos_dir = base_dir / "repos"
+    if not repos_dir.exists():
+        logger.warning("No repositories found to sync.")
+        return
+
+    logger.info("Syncing repositories in %s...", repos_dir)
+
+    for repo_path in repos_dir.iterdir():
+        if repo_path.is_dir():
+            try:
+                clone_or_update_repo(repo_path, base_dir, branch=None)
+            except Exception as e:
+                logger.error("Failed to sync repository %s: %s", repo_path.name, e)
+
+
+# ### Revised Command Structure
+
+app = typer.Typer()
+
+# #### **Add Command**
+# ```bash
+# devt add <source> [--type local|repo] [--branch <branch>] [--workspace] [--dry-run]
+# ```
+
+# - **Examples**:
+#   1. Adding a local tool:
+#      ```bash
+#      devt add ./path/to/tool --type local
+#      ```
+#   2. Adding a repository tool with a specific branch:
+#      ```bash
+#      devt add https://github.com/example/tool-repo --type repo --branch main
+#      ```
+#   3. Dry run to preview actions:
+#      ```bash
+#      devt add ./path/to/tool --type local --dry-run
+#      ```
+
+
+@app.command()
+def add(
+    source: str,
+    type: str = typer.Option(
+        None, help="Specify the type of source: 'local' or 'repo'."
+    ),
+    branch: str = typer.Option(None, help="Specify the branch for repository sources."),
+    workspace: bool = typer.Option(False, help="Add to workspace-level registry."),
+    dry_run: bool = typer.Option(
+        False, help="Preview the actions without making changes."
+    ),
+    auto_sync: bool = typer.Option(
+        True, help="Automatically sync repositories after adding."
+    ),
+):
+    """
+    Add tools to the registry from a local path or repository.
+
+    Args:
+        source (str): Source path or repository URL.
+        type (str): Type of the source, either 'local' or 'repo'.
+        branch (str): Branch name for repository sources.
+        workspace (bool): Whether to add to the workspace-level registry.
+        dry_run (bool): Preview the actions without making changes.
+        auto_sync (bool): Automatically sync repositories after adding.
+    """
+    app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
+    registry_file = app_dir / "registry.json"
+    logger.info("Adding tool(s) to registry from %s...", registry_file)
+
+    registry = load_json(registry_file)
+
+    try:
+        source_type = type or determine_source(source)
+        if source_type == "repo":
+            logger.info("Adding tool(s) from repository %s...", source)
+            if dry_run:
+                logger.info("Dry run: would clone or update repository %s", source)
+                return
+            repo_dir = clone_or_update_repo(source, app_dir, branch)
+            tool_dirs = [
+                manifest.parent for manifest in repo_dir.rglob("manifest.json")
+            ]
+        elif source_type == "local":
+            logger.info("Adding tool(s) from local path %s...", source)
+            if dry_run:
+                logger.info("Dry run: would copy local path %s", source)
+                return
+            tool_dir = add_local(source, app_dir)
+            tool_dirs = [
+                manifest.parent for manifest in tool_dir.rglob("manifest.json")
+            ]
+        else:
+            raise ValueError(f"Unknown source type: {source_type}")
+
+        for tool_dir in tool_dirs:
+            registry = update_registry(
+                tool_dir,
+                registry_file,
+                registry,
+                source,
+                auto_sync=auto_sync and source_type == "repo",
+            )
+
+        if not dry_run:
+            save_json(registry_file, registry)
+            logger.info("Tool(s) successfully added to the registry.")
+    except Exception as e:
+        logger.exception("An error occurred while adding the tool: %s", e)
+
+
+# #### **Remove Command**
+# ```bash
+# devt remove <identifier> [--repository] [--workspace]
+# ```
+
+# - **Examples**:
+#   1. Remove a tool by its identifier:
+#      ```bash
+#      devt remove my-tool
+#      ```
+#   2. Remove a repository:
+#      ```bash
+#      devt remove https://github.com/example/tool-repo --repository
+#      ```
+
+# ---
+
+# ### Key Features
+
+# 1. **Simplified Entry Point**:
+#    - Use `devt add` and `devt remove` directly without `tool` as a subcommand.
+
+# 2. **Unified Command with `--type`**:
+#    - Explicitly specify whether the source is a `local` path or a `repo`, while retaining the option for automatic detection.
+
+# 3. **Optional Enhancements**:
+#    - **`--dry-run`**: Test the operation without making changes.
+#    - **`--branch`**: Specify a branch for repository sources.
+#    - **`--workspace`**: Add or remove tools in the workspace-specific registry.
+
+# 4. **Intuitive Defaults**:
+#    - If `--type` is omitted, auto-detect the source (local path or URL) with feedback.
+
+
+@app.command()
+def remove(
+    name: str = typer.Argument(
+        ..., help="Identifier of the tool or repository directory."
+    ),
+    workspace: bool = typer.Option(False, help="Remove from workspace-level registry."),
+    dry_run: bool = typer.Option(
+        False, help="Preview the actions without making changes."
+    ),
+):
+    """
+    Remove a tool or an entire repository from the registry.
+
+    - If `name` is a repository directory (`dir` in registry), remove all associated tools.
+    - If `name` is a tool, remove it from the registry based on its type (local or repo).
+    - If a tool is local but has a `dir` assigned, also remove its directory.
+
+    Args:
+        name (str): Identifier of the tool or repository directory.
+        workspace (bool): Remove from workspace-level registry.
+        dry_run (bool): Preview the actions without making changes.
+    """
+    app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
+    registry_file = app_dir / "registry.json"
+    registry = load_json(registry_file)
+
+    # Step 1: Check if `name` is a repository (i.e., a `dir` in the registry)
+    repo_tools = {
+        tool: data for tool, data in registry.items() if data.get("dir") == name
+    }
+
+    if repo_tools:
+        logger.info(
+            f"'{name}' is a repository directory. Removing all associated tools."
+        )
+        if dry_run:
+            logger.info(f"Dry run: Would remove repository '{name}' and all its tools.")
+            return
+
+        # Remove all tools associated with the repository
+        for tool_name in list(repo_tools.keys()):
+            del registry[tool_name]
+
+        save_json(registry_file, registry)
+        logger.info(f"Removed all tools from repository '{name}'.")
+        return
+
+    # Step 2: Check if `name` is a tool in the registry
+    if name not in registry:
+        logger.error(f"Tool '{name}' not found in registry.")
+        return
+
+    tool_entry = registry[name]
+    location = tool_entry.get("location", "")
+    tool_dir = tool_entry.get("dir", "")
+
+    # Step 3: Remove a repository tool
+    if location.startswith("repos"):
+        logger.info(f"Tool '{name}' is from a repository (location: {location}).")
+        if dry_run:
+            logger.info(f"Dry run: Would remove '{name}' from registry.json.")
+            return
+        registry[name]["active"] = False
+        save_json(registry_file, registry)
+        logger.info(f"Removed repository tool '{name}' from registry.json.")
+
+    # Step 4: Remove a local tool (with special handling for `dir`)
+    elif location.startswith("tools"):
+        logger.info(f"Tool '{name}' is a local package (location: {location}).")
+        if dry_run:
+            logger.info(
+                f"Dry run: Would remove '{name}' from registry and delete local files."
+            )
+            return
+
+        delete_local_package(name, app_dir, registry, registry_file)
+
+        # If this tool also has a `dir`, delete the entire directory
+        if tool_dir:
+            tool_dir_path = app_dir / tool_dir
+            if tool_dir_path.exists():
+                shutil.rmtree(tool_dir_path)
+                logger.info(
+                    f"Deleted directory '{tool_dir_path}' as it was part of a local tool."
+                )
+
+    # Step 5: Handle unknown tools
+    else:
+        logger.warning(
+            f"Tool '{name}' has an unrecognized location format: {location}. Removing from registry only."
+        )
+        registry[name]["active"] = False
+        save_json(registry_file, registry)
+        logger.info(f"Removed '{name}' from registry.json.")
+
+
+@app.command()
+def list(
+    workspace: bool = typer.Option(False, help="List tools from workspace registry.")
+):
+    """
+    List all tools in the registry.
+
+    Args:
+        workspace (bool): List tools from workspace registry.
+    """
+    if not workspace:
+        logger.info("Listing tools from registry %s...", REGISTRY_FILE)
+        registry = load_json(REGISTRY_FILE)
+        for name, value in registry.items():
+            if value.get("active", True):
+                logger.info(f"{name}: {value.get('source')}")
+    else:
+        logger.info(
+            "Listing tools from workspace registry %s...", WORKSPACE_REGISTRY_FILE
+        )
+        registry = load_json(WORKSPACE_REGISTRY_FILE)
+        for name, value in registry.items():
+            logger.info(f"{name}: {value.get('source')}")
+
+
+@app.command()
+def sync(
+    workspace: bool = typer.Option(
+        False, help="Sync repositories from workspace registry."
+    )
+):
+    """
+    Sync all repositories by pulling the latest changes.
+
+    Args:
+        workspace (bool): Sync repositories from workspace registry.
+    """
+    app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
+    sync_repositories(app_dir)
+    logger.info("All repositories have been synced successfully.")
+
+
+# Run Scripts
 def merge_dicts(*dicts: Dict) -> Dict:
     """
     Merge multiple dictionaries into one.
@@ -95,188 +723,6 @@ def merge_dicts(*dicts: Dict) -> Dict:
     for dictionary in dicts:
         result.update(dictionary)
     return result
-
-
-# Determine if the source is a URL or local path
-def determine_source(source: str):
-    parsed_url = urlparse(source)
-    if parsed_url.scheme and parsed_url.netloc:
-        return "repo"
-    if Path(source).exists():
-        return "local"
-    return None
-
-
-# 4. Environment Setup
-def set_user_environment_var(name: str, value: str):
-    """
-    Set a user environment variable that persists across sessions.
-    """
-    try:
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
-        ) as key:
-            winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
-            logger.info("Set user environment variable: %s=%s", name, value)
-    except OSError:
-        logger.error("Failed to set user environment variable %s", name)
-
-
-def setup_environment():
-    """
-    Initialize the environment by creating necessary directories and
-    setting environment variables.
-    """
-    USER_APP_DIR.mkdir(parents=True, exist_ok=True)
-    TOOLS_DIR.mkdir(parents=True, exist_ok=True)
-    TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-
-    os.environ["DEVT_USER_APP_DIR"] = str(USER_APP_DIR)
-    os.environ["DEVT_TOOLS_DIR"] = str(TOOLS_DIR)
-    os.environ["DEVT_WORKSPACE_DIR"] = str(WORKSPACE_DIR)
-
-    set_user_environment_var("DEVT_USER_APP_DIR", str(USER_APP_DIR))
-    set_user_environment_var("DEVT_TOOLS_DIR", str(TOOLS_DIR))
-    set_user_environment_var("DEVT_WORKSPACE_DIR", str(WORKSPACE_DIR))
-
-    logger.info("Environment variables set successfully")
-
-
-# 5. Package Management
-def clone_or_update_repo(repo_url: str, base_dir: Path):
-    """
-    Add a repository by cloning or updating.
-    """
-    repo_name = Path(urlparse(repo_url).path).stem
-    repo_dir = base_dir / "repos" / repo_name
-
-    if repo_dir.exists():
-        logger.info("Updating repository %s...", repo_name)
-        repo = Repo(repo_dir)
-        repo.remotes.origin.pull()
-    else:
-        logger.info("Cloning repository %s...", repo_url)
-        Repo.clone_from(repo_url, repo_dir)
-
-    return repo_dir
-
-
-def add_local(local_path: str, base_dir: Path):
-    """
-    Add a local tool.
-    """
-    source_path = Path(local_path).resolve()
-    if not source_path.exists():
-        raise FileNotFoundError(f"Error: Path '{local_path}' does not exist.")
-
-    destination = base_dir / "tools" / source_path.name
-    if destination.exists():
-        logger.warning("Tool '%s' already exists. Overwriting...", source_path.name)
-
-    shutil.copytree(source_path, destination, dirs_exist_ok=True)
-    return destination
-
-
-def update_registry(tool_dir: Path, registry_file: Path, repo: str = None):
-    """
-    Update the registry with a new tool.
-    """
-    registry = load_json(registry_file)
-    manifest_path = tool_dir / "manifest.json"
-    if not manifest_path.exists():
-        raise FileNotFoundError(f"Error: Missing manifest.json in {tool_dir}.")
-
-    with open(manifest_path, "r") as file:
-        manifest = json.load(file)
-
-    required_fields = ["name", "command", "scripts"]
-    missing_fields = [field for field in required_fields if field not in manifest]
-    if missing_fields:
-        raise ValueError(
-            f"Error: Missing required fields in manifest.json: {', '.join(missing_fields)}"
-        )
-
-    registry[manifest.get("command")] = {
-        "manifest": manifest,
-        "location": str(tool_dir.relative_to(registry_file.parent)),
-        "added": datetime.utcnow().isoformat() + "Z",
-        "repo": repo,
-    }
-    save_json(registry_file, registry)
-
-
-# APP
-
-app = typer.Typer()
-
-# Package Management
-
-
-@app.command()
-def add(
-    source: str,
-    workspace: bool = typer.Option(False, help="Add to workspace-level registry."),
-):
-    """
-    Add a tool from a URL or local path.
-    """
-    base_dir = WORKSPACE_APP_DIR if workspace else USER_APP_DIR
-    registry_file = WORKSPACE_REGISTRY_FILE if workspace else REGISTRY_FILE
-
-    source_type = determine_source(source)
-    if source_type == "repo":
-        repo_dir = clone_or_update_repo(source, base_dir)
-        for tool in repo_dir.rglob("manifest.json"):
-            update_registry(tool.parent, registry_file, source)
-
-    elif source_type == "local":
-        tool_dir = add_local(source, base_dir)
-        if (tool_dir / "manifest.json").exists():
-            update_registry(tool_dir, registry_file)
-        else:
-            for tool in tool_dir.rglob("manifest.json"):
-                update_registry(tool.parent, registry_file)
-    else:
-        raise ValueError(f"Error: Could not determine the type of source '{source}'.")
-
-
-@app.command()
-def remove(
-    tool_name: str,
-    workspace: bool = typer.Option(False, help="Remove from workspace-level registry."),
-):
-    """
-    Remove a tool by name.
-    """
-    base_dir = WORKSPACE_APP_DIR if workspace else USER_APP_DIR
-    registry_file = WORKSPACE_REGISTRY_FILE if workspace else REGISTRY_FILE
-
-    registry = load_json(registry_file)
-    tool_info = registry.pop(tool_name, None)
-    if not tool_info:
-        raise ValueError(f"Error: Tool '{tool_name}' not found.")
-
-    tool_path = base_dir / tool_info["location"]
-    shutil.rmtree(tool_path, ignore_errors=True)
-    save_json(registry_file, registry)
-    typer.echo(f"Tool '{tool_name}' removed successfully.")
-
-
-@app.command()
-def list_tools():
-    """List all tools available in USER and WORKSPACE levels."""
-    user_registry = load_json(REGISTRY_FILE)
-    workspace_registry = load_json(WORKSPACE_REGISTRY_FILE)
-    merged_registry = merge_dicts(user_registry, workspace_registry)
-
-    typer.echo("Available Tools:")
-    for tool_name, tool_data in merged_registry.items():
-        level = "WORKSPACE" if tool_name in workspace_registry else "USER"
-        typer.echo(f" - {tool_name} [{level}] : {tool_data['location']}")
-
-
-# Run Scripts
 
 
 @app.command()
@@ -294,57 +740,128 @@ def do(
         script_name (str): The name of the script to run.
         additional_args (List[str]): Additional arguments to pass to the script.
     """
+    # Load both the user and workspace registries.
     user_registry = load_json(REGISTRY_FILE)
     workspace_registry = load_json(WORKSPACE_REGISTRY_FILE)
-    workspace_package = {
-        "workspace": {
-            "manifest": load_json(WORKSPACE_FILE),
-        }
-    }
-    merged_registry = merge_dicts(user_registry, workspace_registry, workspace_package)
-
-    tool = merged_registry.get(tool_name)
-    if not tool:
-        raise ValueError(f"Error: Tool '{tool_name}' not found.")
-
-    if tool_name == "workspace":
-        tool_dir = WORKSPACE_DIR
-    else:
-        tool_dir = (
-            Path(WORKSPACE_APP_DIR if tool_name in workspace_registry else USER_APP_DIR)
-            / tool["location"]
-        )
-    base_dir = tool.get("manifest").get("base_dir", ".")
-    new_cwd = tool_dir / base_dir
-    repo = tool.get("repo")
-    if repo:
-        repo_dir = (
-            Path(WORKSPACE_APP_DIR if tool_name in workspace_registry else USER_APP_DIR)
-            / repo
-        )
-        repo = Repo(repo_dir)
-        repo.remotes.origin.pull()
-
-    platform = "windows" if os.name == "nt" else "posix"
-    # Determine the script based on platform and script_name
-    script = tool.get("manifest").get("scripts").get(platform, {}).get(
-        script_name
-    ) or tool.get("manifest").get("scripts").get(script_name)
-    if not script:
-        raise ValueError(f"Script '{script_name}' not found for tool '{tool_name}'")
-
-    if additional_args is not None:
-        additional_args = [additional_args]
-
-    # Combine script and additional arguments
-    command = [script] + (additional_args if additional_args else [])
-
-    logger.info(
-        "Running '%s' for %s with args: %s", script_name, tool_name, additional_args
+    # Add workspace.json to the workspace registry if it doesn't exist.
+    workspace_registry = update_registry_with_workspace(
+        WORKSPACE_REGISTRY_FILE, workspace_registry
     )
-    if platform == "windows":
-        command = ["cmd", "/c"] + command
-    subprocess.run(command, cwd=new_cwd, shell=(platform == "windows"), check=True)
+
+    # Decide which registry contains the tool.
+    if tool_name in workspace_registry:
+        tool = workspace_registry[tool_name]
+        registry_dir = WORKSPACE_REGISTRY_DIR
+        registry = workspace_registry
+    elif tool_name in user_registry:
+        tool = user_registry[tool_name]
+        registry_dir = REGISTRY_DIR
+        registry = user_registry
+    else:
+        raise ValueError(f"Error: Tool '{tool_name}' not found in any registry.")
+
+    # Resolve repository directory and tool location.
+    repo_name = tool.get("dir")
+    repo_dir = Path(registry_dir) / repo_name
+
+    # Determine the path to the tool's manifest.
+    tool_manifest_path = Path(registry_dir) / tool["location"]
+
+    # If tool_manifest_path is a file (e.g. "manifest.json"), get its parent directory.
+    tool_dir = (
+        tool_manifest_path.parent
+        if tool_manifest_path.is_file()
+        else tool_manifest_path
+    )
+
+    # Determine the shell type.
+    shell = "posix" if os.name != "nt" else "windows"
+
+    scripts = tool.get("manifest", {}).get("scripts", {})
+    script = scripts.get(script_name) or scripts.get(shell, {}).get(script_name)
+
+    print(f"{script}")
+
+    # Auto-syncing if enabled.
+    if tool.get("auto_sync", False):
+        logger.info("Auto-syncing repository for tool '%s'...", tool_name)
+        clone_or_update_repo(tool["source"], repo_dir, branch=None)
+        tool_dirs = [manifest.parent for manifest in repo_dir.rglob("manifest.json")]
+        for tool_dir in tool_dirs:
+            registry = update_registry(
+                tool_dir,
+                registry_dir / "registry.json",
+                registry,
+                tool["source"],
+            )
+        # Save the updated registry.
+        save_json(registry_dir / "registry.json", registry)
+        if tool_name in registry:
+            tool = registry[tool_name]
+
+        scripts = tool.get("manifest", {}).get("scripts", {})
+        script = scripts.get(script_name) or scripts.get(shell, {}).get(script_name)
+
+        print(f"{script}")
+
+    # Determine the base directory from the tool's manifest.
+    base_dir = tool.get("manifest", {}).get("base_dir", ".")
+    new_cwd = (tool_dir / base_dir).resolve()
+
+    if not new_cwd.is_dir():
+        logger.warning(
+            f"Warning: '{new_cwd}' is not a directory. Falling back to tool directory."
+        )
+        new_cwd = tool_dir  # Fallback to the tool's main directory
+
+    # Determine the shell type.
+    shell = "posix" if os.name != "nt" else "windows"
+
+    # Retrieve the scripts dictionary from the tool's manifest.
+    scripts = tool.get("manifest", {}).get("scripts", {})
+    script = scripts.get(script_name) or scripts.get(shell, {}).get(script_name)
+    if not script:
+        available_scripts = ", ".join(scripts.keys())
+        shell_specific_scripts = ", ".join(scripts.get(shell, {}).keys())
+        raise ValueError(
+            f"Script '{script_name}' not found for tool '{tool_name}'. "
+            f"Available scripts: {available_scripts}. "
+            f"Shell-specific scripts: {shell_specific_scripts}"
+        )
+
+    # additional_args = additional_args or []
+    # command = shlex.split(script) + additional_args
+
+    # Reconstruct the command as a string.
+    # If additional_args are provided, append them to the command string.
+    additional = " ".join(additional_args) if additional_args else ""
+    full_command = f"{script} {additional}".strip()
+
+    logger.info(f"Full command string: {full_command}")
+
+    logger.info(f"Running script '{script_name}' for tool '{tool_name}'...")
+    logger.info(f"Command: {full_command}")
+    logger.info(f"Tool directory: {tool_dir}")
+    logger.info(f"Base directory: {base_dir}")
+    logger.info(f"Resolved working directory: {new_cwd}")
+
+    if not new_cwd.exists():
+        raise ValueError(f"Error: Working directory '{new_cwd}' does not exist.")
+
+    try:
+        subprocess.run(
+            full_command,
+            cwd=new_cwd,
+            check=True,
+            shell=True,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Command failed with exit code {e.returncode}")
+        if e.stdout:
+            logger.error(f"Command output:\n{e.stdout}")
+        if e.stderr:
+            logger.error(f"Error output:\n{e.stderr}")
+        raise
 
 
 @app.command()
@@ -429,35 +946,6 @@ def test(
     """
     for tool in tools:
         do(tool, "test")
-
-
-# Initialize Workspace
-
-
-@app.command()
-def init():
-    """
-    Initialize the environment and repository as required.
-    """
-    logger.info("Initializing the environment...")
-    user_registry = load_json(REGISTRY_FILE)
-    workspace_registry = load_json(WORKSPACE_REGISTRY_FILE)
-    workspace_package = {
-        "workspace": {
-            "manifest": load_json(WORKSPACE_FILE),
-        }
-    }
-    merged_registry = merge_dicts(user_registry, workspace_registry, workspace_package)
-    git_tool = merged_registry.get("git")
-    vscode_tool = merged_registry.get("vscode")
-    cwd = WORKSPACE_DIR
-    if (cwd / ".git").exists() and git_tool:
-        logger.info("Setting up git configuration...")
-        do("git", "set")
-    if not (cwd / ".vscode").exists() and vscode_tool:
-        logger.info("Setting up VS Code configuration...")
-        do("vscode", "set")
-    logger.info("Repository and tools are ready")
 
 
 if __name__ == "__main__":
