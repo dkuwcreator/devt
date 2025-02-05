@@ -2,291 +2,162 @@
 
 ### Sharing Development Tools Made Easy
 
-## **What is DevT?**
+## What is DevT?
 
-`devt` is a command-line interface (CLI) tool that acts as a package manager to simplify the installation, configuration, and management of development tools for teams and organizations. It automates tasks such as:
+**DevT** is a command-line interface (CLI) tool that acts as a package manager for development tools, simplifying the installation, configuration, and management of these tools across teams and organizations. It automates tasks such as:
 
 - Installing tools
 - Resolving dependencies
-- Running scripts per company policies
+- Running scripts according to company policies
 
-### **Problem and Solution**
+## The Problem and Our Solution
 
-Modern developers rely on various tools—linters, formatters, testing frameworks, Docker, Kubernetes, Terraform, Visual Studio Code, and more. Managing these tools across projects and setups can be challenging due to:
+Modern developers rely on a wide range of tools—linters, formatters, testing frameworks, Docker, Kubernetes, Terraform, Visual Studio Code, and more. Managing these tools across diverse projects and system configurations is challenging because:
 
-- Diverse system configurations among team members
-- Company policies requiring specific tool versions or configurations
-- Admin rights or security restrictions complicating installations
+- Team members often work on different operating systems.
+- Company policies require specific tool versions or configurations.
+- Administrative rights or security restrictions can complicate installations.
 
-This often leads to duplicated effort and inconsistencies across teams. For instance, developers might spend hours resolving dependency conflicts when setting up a linter or formatter manually, only to discover later that other team members are using different configurations. These mismatches can lead to issues like differing code styles, missed bugs, or wasted time troubleshooting discrepancies.
+This leads to duplicated efforts, inconsistent setups, and wasted time troubleshooting dependency conflicts. **DevT** addresses these challenges by providing a centralized way to manage development tools through simple, shareable packages.
 
-`devt` addresses these challenges by providing a centralized way to manage development tools. Teams can define required tools as simple "packages" that are easily shared and reused. Here's how it works:
+## Key Benefits
 
-- Developers create packages that include installation scripts, configuration files, and dependencies for specific tools.
-- These packages are shared across the team, ensuring consistent setups and configurations.
-- This eliminates the need for developers to individually figure out installation and configuration steps.
+- **Time-Saving:** Automate repetitive setup tasks.
+- **Error Reduction:** Ensure all team members use standardized, approved configurations.
+- **Consistency:** Maintain uniform environments across projects and developers.
 
-**Key Benefits of DevT:**
+## How DevT Works
 
-- **Time-Saving**: Skip repetitive setup tasks.
-- **Error Reduction**: Ensure compliance with company standards.
-- **Consistency**: Maintain uniform setups across projects and team members.
+DevT maintains a central registry (a JSON file) that tracks all tool packages installed by the user. There are two levels of configuration:
 
-From basic linters to complex tools like Kubernetes, `devt` enables developers to focus on coding, not configuration. For instance, developers might spend hours resolving dependency conflicts when setting up a linter or formatter manually, only to discover later that other team members are using different configurations. These mismatches can lead to issues like differing code styles, missed bugs, or wasted time troubleshooting discrepancies.
+1. **User-Level Registry:** Global tools available to all projects.
+2. **Workspace-Level Registry:** Project-specific tools and configurations, merged from a `workspace.json` file located in the project’s root directory.
 
-## **Using DevT**
+### Workflow
 
-`devt` operates by maintaining a central directory on the user's computer where all tool packages are stored. Users can add packages by cloning them from Git repositories, which can be automatically synced or notify users of changes. Additionally, users can add their own packages locally.
+1. **Adding Tools:**
 
-### Tool Packages in `devt`
+- **Repository Tools:**  
+  Clone or update remote repositories containing tool packages using:
+  ```bash
+  devt add https://github.com/your-org/your-tool-repo.git
+  ```
+  This command clones the repository into a local directory (e.g. under `.registry/repos/`) and scans it for tool packages.
+- **Local Tools:**  
+  Import local tool packages (or a collection of packages) into the registry:
+  ```bash
+  devt local import /path/to/local/tool-package
+  ```
+  Tools are grouped automatically—if you import a folder containing multiple tools, the group is set based on the folder name unless overridden by a `--group` option.
 
-Tool packages are the core of `devt`. They encapsulate all scripts, dependencies, and configurations needed to install, configure, and run a development tool. By organizing tools into standardized packages, `devt` enables developers to share, manage, and automate tool usage effectively across teams and environments.
+2. **Managing Tools:**  
+   Use commands such as:
 
-### **Structure of a Tool Package**
+   - `devt list` – List all available tools.
+   - `devt remove <tool>` – Remove a specific tool.
+   - `devt sync` – Synchronize all repository-based tools with their remote sources.
 
-Each tool package resides in its own directory and must include the following components. These components are essential for defining the structure and behavior of the tool package, ensuring that all necessary scripts and resources are organized in a predictable and reusable format.
+3. **Executing Scripts:**  
+   The **core feature** of DevT is to execute predefined scripts from tool packages. Each tool package contains a `manifest.json` defining metadata and a set of scripts for operations like installation, upgrade, or testing.
 
-1. **`manifest.json`** (mandatory): A configuration file describing the tool, its dependencies, and associated scripts.
-2. **Scripts** (optional): Executable files for installation, configuration, or other tasks.
-3. **Resources** (optional): Supporting files such as certificates, templates, or other required assets.
+   - **Standard Commands:**
 
-**Example Directory Structure:**
+     - `devt install <tool>` – Executes the `install` script for the tool.
+     - `devt uninstall <tool>` – Executes the `uninstall` script.
+     - `devt upgrade <tool>` – Executes the `upgrade` script.
+     - `devt version <tool>` – Displays the tool’s version.
+     - `devt test <tool>` – Runs the tool’s test script.
 
-```
-<tool_package_name>/
-├── manifest.json
-├── scripts/
-│   ├── install.sh
-│   ├── upgrade.sh
-│   └── uninstall.sh
-└── resources/
-    └── company_cert.pem
-```
+   - **Direct Script Execution:**  
+     Use the `do` command to run any script defined in a tool’s manifest:
+     ```bash
+     devt do <tool> <script> [arguments]
+     ```
+     For example:
+     ```bash
+     devt do azd deploy
+     ```
+     **DevT** first looks up the tool in the workspace registry (project-specific) and falls back to the user registry if needed—no need to specify `--workspace`. It automatically resolves the correct script based on your operating system (e.g. PowerShell on Windows, Bash on POSIX systems) and executes it in the appropriate working directory. If auto-sync is enabled for the tool, the repository is updated before running the script.
 
-### **Manifest File**
+## Tool Package Structure
 
-The `manifest.json` specifies the following:
+Tool packages encapsulate all the scripts, dependencies, and configurations needed for a development tool. This standardization allows teams to share and reuse tool packages reliably.
 
-- **Name and Description**: Metadata about the tool.
-- **Dependencies**: Other tools or system requirements.
-- **Scripts**: Paths to scripts for various operations (e.g., install, upgrade, uninstall, test, version).
-- **Path Resolution**: Mechanisms for resolving paths to scripts and resources.
+### Mandatory Components
 
-**Example `manifest.json`:**
+1. **`manifest.json`:**  
+   A configuration file that includes:
+
+   - **Name and Description:** Metadata about the tool.
+   - **Command:** A unique identifier used in the registry and CLI (e.g. `testy`).
+   - **Dependencies:** Version constraints for required tools/libraries.
+   - **Scripts:** A set of commands for key operations (install, uninstall, upgrade, version, test).
+   - **base_dir (optional):** A custom base directory for resolving paths.
+
+2. **Scripts (optional):**  
+   Executable files that perform installation, updates, or tests.
+
+3. **Resources (optional):**  
+   Supporting files such as certificates or configuration templates.
+
+### Example `manifest.json`
 
 ```json
 {
-  "name": "Example Tool",
-  "description": "A sample tool with scripts for installation and updates.", # Optional
-  "command": "tool-cli",
-  "base_dir": ".", # Optional
+  "name": "Testy the Test",
+  "description": "This is a testy function.",
+  "command": "testy",
+  "base_dir": ".",
   "dependencies": {
-    "python": ">=3.6",
-    "pip": ">=20.0"
-  }, # Optional
-  "scripts": {
-    "install": "pip install example-tool", # Mandatory
-    "uninstall": "pip uninstall example-tool", # Mandatory
-    "upgrade": "pip install --upgrade example-tool", # Mandatory
-    "version": "tool-cli --version", # Mandatory
-    "test": "tool-cli --test" # Mandatory
-  }
-}
-```
-
-Mandatory fields in the `manifest.json` include `name`, `dependencies`, and `scripts`. Dependencies can specify version constraints for tools or libraries required by the package.
-
-### **Key Features of Tool Packages**
-
-#### 1. **Cross-Platform Support**
-
-`devt` supports OS-specific scripts and dependencies, allowing the same tool package to adapt to Windows, macOS, and Linux environments.
-
-**Example Manifest for Cross-Platform Scripts:**
-
-```json
-{
-  "name": "Cross-Platform Tool",
-  "command": "tool-cli",
+    "python": "^3.9.0",
+    "pip": "^21.0.0"
+  },
   "scripts": {
     "windows": {
-      "install": "./scripts/install.ps1",
-      "upgrade": "./scripts/upgrade.ps1"
+      "install": "echo \"Testy is installed on Windows.\"",
+      "update": "echo \"Testy is updated on Windows.\""
     },
     "posix": {
-      "upgrade": "./scripts/upgrade.sh"
+      "update": "echo \"Testy is updated on POSIX.\""
     },
-    "install": "./scripts/install.sh",
-    "uninstall": "./scripts/uninstall.sh",
-    "version": "tool-cli --version",
-    "test": "tool-cli --test"
+    "install": "echo \"Testy is installed on all platforms.\"",
+    "uninstall": "echo \"Testy is uninstalled on all platforms.\"",
+    "version": "echo \"Testy is versioned on all platforms.\"",
+    "test": "echo \"Testy is tested on all platforms.\""
   }
 }
 ```
 
-On Windows, `devt` executes the `install.ps1` script for installation and the `upgrade.ps1` script for upgrades. On macOS and Linux, it runs the `install.sh` and `upgrade.sh` scripts, respectively. The `test` script is common to all platforms.
+### Directory Layout
+
+Imported local packages are stored under a grouping structure, for example:
+
+```
+.registry/
+└── tools/
+    └── default/
+         └── test_tool/
+              └── manifest.json
+```
+
+Repositories are stored under:
+
+```
+.registry/
+└── repos/
+    └── devt-tools/
+         └── (various tool package directories)
+```
+
+## Project-Specific Context
+
+Projects can have their own configuration defined in a `workspace.json` file located at the project root. This file allows you to specify project-specific tools and scripts. When present, **DevT** automatically adds the contents of `workspace.json` to the workspace registry under the key `"workspace"`.
+
+### Example `workspace.json`
 
 ```json
 {
-  "install": "./scripts/install.ps1",
-  "update": "./scripts/update.ps1",
-  "test": "tool-cli --test"
-}
-```
-
-#### 2. **Dependency Management**
-
-Tool packages can declare dependencies on other tools or libraries:
-
-```json
-"dependencies": {
-  "python": ">=3.6",
-  "pip": ">=20.0"
-}
-```
-
-Dependencies can also be OS-specific:
-
-```json
-"dependencies": {
-  "windows": {
-    "winget": ">=1.9.25200"
-  },
-  "posix": {
-    "apt": ">=2.2.4"
-  }
-}
-```
-
-#### 3. **Path Resolution**
-
-Relative paths in `manifest.json` are resolved based on the directory containing the manifest. The `base_dir` field can customize this behavior.
-
-### **Central Tools Repository**
-
-A company could maintain a shared `utilities_repo` repository housing packages for tools like Git, Azure CLI, and Python. Example structure:
-
-```
-utilities_repo/
-├── python/
-│   ├── manifest.json
-│   ├── scripts/
-│   │   ├── install.sh
-│   │   └── update.sh
-│   └── certs/
-│       └── company_cert.pem
-├── az/
-│   └── manifest.json
-└── git/
-    ├── manifest.json
-    └── scripts/
-        ├── set.sh
-        └── update.sh
-```
-
-## **Core Functionality of DevT?**
-
-### **Managing Tool Packages**
-
-To add the company’s `utilities_repo` to the local `devt` directory:
-
-```bash
-devt add https://example.com/utilities_repo
-```
-
-This command clones the repository and syncs it locally. Alternatively, add a local directory: This option is useful when you have custom or experimental tools that are not yet part of a shared repository or when you prefer faster access and modifications without relying on a remote server.
-
-```bash
-devt add /path/to/local/package
-```
-
-`devt` manages tools via a `registry.json` file. To view available tools:
-
-```bash
-devt list
-```
-
-Other commands:
-
-- `devt remove <tool>`: Removes a tool package.
-- `devt sync`: Syncs with remote repositories.
-
-### **Script Execution**
-
-Next to the basic functionality of sharing tools, `devt` offers another core feature to enhance the developer experience, which is using tools on a daily basis or in a project-specific context.
-
-Once the repository is added, you can make use of the tools by running scripts defined in the tool packages. For example, to install the Azure CLI tool, you would run:
-
-```bash
-devt install az
-```
-
-In this case, the command executes the `install` script specified in the `manifest.json` file for the `az` package. For example, this script might run the equivalent of:
-
-```bash
-pip install azure-cli
-```
-
-`devt` intelligently resolves all underlying operating system dependencies and executes the appropriate script for your environment. This eliminates the need for developers to worry about platform-specific commands or configurations.
-
-The standard commands for script execution include:
-
-- `devt install <tool>`: Installs the specified tool package.
-- `devt uninstall <tool>`: Uninstalls the specified tool package.
-- `devt upgrade <tool>`: Upgrades the specified tool package.
-- `devt version <tool>`: Displays the version of the specified tool package.
-- `devt test <tool>`: Runs the test script for the specified tool package.
-
-### **Running Tools Directly**
-
-With `devt`, you can execute any tool directly from the command line by running:
-
-```bash
-devt do <tool> <script>
-```
-
-For example, to execute the `deploy` script in the `azd` package, you would run:
-
-```bash
-devt do azd deploy
-```
-
-`devt` intelligently resolves all underlying operating system dependencies and executes the appropriate script for your environment. This eliminates the need for developers to worry about platform-specific commands or configurations.
-
-For instance:
-
-- On Windows, `devt` might execute a PowerShell script (`set.ps1`).
-- On macOS or Linux, it might execute a Bash script (`set.sh`).
-
-This flexibility ensures that teams using multiple operating systems can share tools without additional effort.
-
-Run scripts directly using:
-
-```bash
-devt install <tool>
-```
-
-`devt` resolves dependencies and executes platform-specific scripts.
-
-Standard commands:
-
-- `devt install <tool>`
-- `devt uninstall <tool>`
-- `devt upgrade <tool>`
-- `devt version <tool>`
-- `devt test <tool>`
-
-### **Project-Specific Context**
-
-Projects can define tools and scripts in `devt.json`:
-
-```json
-{
-  "tools": {
-    "azd": "1.5.0",
-    "checkov": "2.0.0",
-    "terraform": "1.0.11"
-  },
+  "tools": {},
   "scripts": {
     "test": "terraform init && terraform validate && checkov -d .",
     "deploy": "azd up",
@@ -295,12 +166,116 @@ Projects can define tools and scripts in `devt.json`:
 }
 ```
 
-Run scripts with:
+To initialize a project with this configuration, run:
 
 ```bash
-devt run test
+devt init
 ```
 
-Other commands:
+This creates a `workspace.json` file in the current directory if one does not already exist.
 
-- `devt init`: Initializes a project with `devt.json`.
+## Command Summary
+
+### Adding Tools
+
+- **Repository-based:**
+  ```bash
+  devt add https://github.com/your-org/your-tool-repo.git
+  ```
+- **Local Packages:**
+  ```bash
+  devt local import /path/to/local/package
+  ```
+  Optionally, specify a group:
+  ```bash
+  devt local import /path/to/local/package --group custom-group
+  ```
+
+### Managing Tools
+
+- **List Tools:**
+  ```bash
+  devt list
+  ```
+- **Remove Tools:**
+  - Remove a single local tool:
+    ```bash
+    devt local delete <tool_identifier>
+    ```
+  - Remove an entire group of local tools:
+    ```bash
+    devt local delete <group_name> --group
+    ```
+- **Export Tools:**
+  - Export a single tool:
+    ```bash
+    devt local export <tool_identifier> <destination_path>
+    ```
+  - Export a group of tools:
+    ```bash
+    devt local export <group_name> <destination_path> --group
+    ```
+- **Rename a Group:**
+  ```bash
+  devt local rename-group <old_group_name> <new_group_name>
+  ```
+- **Move a Tool:**
+  ```bash
+  devt local move-tool <tool_identifier> <new_group_name>
+  ```
+
+### Script Execution
+
+- **Run a Specific Script:**
+
+  ```bash
+  devt do <tool> <script> [arguments]
+  ```
+
+  For example:
+
+  ```bash
+  devt do testy install
+  ```
+
+  This command looks up the tool (preferring workspace-level entries), resolves the correct script for your operating system (e.g. using PowerShell on Windows or Bash on Linux/macOS), and executes it in the appropriate working directory. If auto-sync is enabled for the tool, its repository is updated before executing the script.
+
+- **Standard Commands for Tools:**
+  ```bash
+  devt install <tool>
+  devt uninstall <tool>
+  devt upgrade <tool>
+  devt version <tool>
+  devt test <tool>
+  ```
+
+### Project Initialization
+
+- **Initialize Project:**
+  ```bash
+  devt init
+  ```
+  This creates a `workspace.json` file in the current directory that can be customized for project-specific tool configurations.
+
+## Cross-Platform and Auto-Sync Features
+
+- **Cross-Platform Support:**  
+  Tool packages can define OS-specific scripts under `windows` and `posix` keys in the manifest. DevT resolves and executes the appropriate script based on the current operating system.
+
+- **Auto-Sync:**  
+  If a tool package is managed via a Git repository and has auto-sync enabled, DevT will update the repository automatically before executing scripts.
+
+---
+
+## Conclusion
+
+DevT simplifies the way development tools are shared and managed by:
+
+- Centralizing tool definitions in standardized packages.
+- Merging workspace and user configurations so that project-specific setups take precedence.
+- Providing a flexible, cross-platform execution environment for tool scripts.
+- Offering commands for managing (adding, removing, exporting, moving) tools and groups.
+
+With DevT, teams can ensure consistent development environments and focus more on writing code and less on manual configuration.
+
+Happy Coding!
