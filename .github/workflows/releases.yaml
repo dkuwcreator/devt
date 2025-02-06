@@ -21,16 +21,12 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-
       - name: Write Version File
         run: echo "${{ github.ref_name }}" > .version
 
       - name: Run build script
         run: |
-          python build.py --ci --clean
+          python build.py --clean
         shell: cmd
      
       - name: Create GitHub Release
