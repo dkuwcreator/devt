@@ -1,6 +1,6 @@
 # Parse command-line arguments
 param (
-    [string]$UserPath = "",  # Allow empty, so it defaults to a logical location
+    [string]$InstallPath = "", # Allow empty, so it defaults to a logical location
     [switch]$Uninstall
 )
 
@@ -10,7 +10,7 @@ $DEFAULT_INSTALL_DIR = Join-Path $env:USERPROFILE $OUTPUT_NAME  # Logical instal
 $DOWNLOAD_URL = "https://github.com/dkuwcreator/devt/releases/latest/download/devt.exe"
 
 # Determine installation directory
-$INSTALL_DIR = if ($UserPath) { $UserPath } else { $DEFAULT_INSTALL_DIR }
+$INSTALL_DIR = if ($InstallPath) { $InstallPath } else { $DEFAULT_INSTALL_DIR }
 $EXECUTABLE_PATH = Join-Path $INSTALL_DIR "$OUTPUT_NAME.exe"
 
 # Function to update PATH environment variable
@@ -28,11 +28,12 @@ function Update-Path {
     if ($Remove) {
         if ($userPath -match [regex]::Escape($TargetPath)) {
             Write-Host "Removing $TargetPath from PATH..."
-            $newPath = ($userPath -split ";" | Where-Object {$_ -ne $TargetPath}) -join ";"
+            $newPath = ($userPath -split ";" | Where-Object { $_ -ne $TargetPath }) -join ";"
             [System.Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
             Write-Host "Removed $TargetPath from PATH. Restart your terminal or system for changes to take effect."
         }
-    } else {
+    }
+    else {
         if ($userPath -notmatch [regex]::Escape($TargetPath)) {
             Write-Host "Adding $TargetPath to PATH..."
             $newPath = if ($userPath) { "$userPath;$TargetPath" } else { $TargetPath }
@@ -40,6 +41,8 @@ function Update-Path {
             Write-Host "Added $TargetPath to PATH. Restart your terminal or system for changes to take effect."
         }
     }
+    # Ensure PATH updates reflect immediately in the session
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
 }
 
 # Function to install the executable
@@ -55,7 +58,8 @@ function Install-App {
     
     if (Test-Path $EXECUTABLE_PATH) {
         Write-Host "$OUTPUT_NAME successfully installed to $INSTALL_DIR"
-    } else {
+    }
+    else {
         Write-Host "Failed to download $OUTPUT_NAME. Check your network connection."
         exit 1
     }
@@ -68,11 +72,12 @@ function Install-App {
 
 # Function to uninstall the executable
 function Uninstall-App {
-    if (Test-Path $EXECUTABLE_PATH) {
-        Remove-Item -Path $EXECUTABLE_PATH -Force
-        Write-Host "Removed $OUTPUT_NAME from $INSTALL_DIR."
-    } else {
-        Write-Host "$OUTPUT_NAME not found in $INSTALL_DIR. Skipping removal."
+    if (Test-Path $INSTALL_DIR) {
+        Remove-Item -Path $INSTALL_DIR -Recurse -Force
+        Write-Host "Removed $INSTALL_DIR and all its contents."
+    }
+    else {
+        Write-Host "$INSTALL_DIR not found. Skipping removal."
     }
     
     # Remove directory from PATH
@@ -81,9 +86,7 @@ function Uninstall-App {
 
 if ($Uninstall) {
     Uninstall-App
-} else {
+}
+else {
     Install-App
 }
-
-# Ensure PATH updates reflect immediately in the session
-$env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
