@@ -27,7 +27,7 @@ from devt.config import (
     WORKSPACE_DIR,
 )
 from devt.utils import load_json, on_exc, save_json, determine_source
-from devt.git_ops import clone_or_update_repo
+from devt.git_ops import clone_or_update_repo, update_repo
 from devt.registry import update_registry, update_registry_with_workspace
 from devt.package_ops import add_local, delete_local_package, sync_repositories
 from devt.executor import (
@@ -198,9 +198,57 @@ def sync_repos(
     Example:
         devt repo sync --workspace
     """
+    logger.info("Starting repository sync...")
+
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
-    sync_repositories(app_dir)
-    typer.echo("All repositories have been synced successfully.")
+    repos_dir = app_dir / "repos"
+    registry_file = app_dir / "registry.json"
+    registry = load_json(registry_file)
+
+    if not repos_dir.exists():
+        logger.warning(f"Repositories directory not found: {repos_dir}")
+        return
+
+    for repo in repos_dir.iterdir():
+        if not repo.is_dir() or repo.name == ".git":
+            continue
+
+        logger.info(f"Syncing repository: {repo.name}")
+
+        try:
+            # Retrieve associated tools from the registry
+            tools = [tool for tool in registry.values() if tool.get("dir") == repo.name]
+
+            # Pull latest changes for the repository
+            repo_dir = update_repo(repo, None)
+
+            # Find tool directories in the repo
+            tool_dirs = [
+                manifest.parent for manifest in repo_dir.rglob("manifest.json")
+            ]
+
+            for tool_dir in tool_dirs:
+                logger.info(f"Updating registry for tool directory: {tool_dir}")
+
+                if tools:
+                    registry = update_registry(
+                        tool_dir,
+                        registry_file,
+                        registry,
+                        tools[0].get("source"),
+                        tools[0].get("auto_sync", True),
+                    )
+                else:
+                    logger.warning(
+                        f"No tools found in registry for repository: {repo.name}"
+                    )
+
+            save_json(registry_file, registry)
+
+        except Exception as e:
+            logger.error(f"Failed to sync repository {repo.name}: {e}")
+
+    logger.info("Repository sync completed.")
 
 
 # ---------------------------------------------------------------------------

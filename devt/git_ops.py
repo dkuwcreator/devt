@@ -7,6 +7,21 @@ from git import Repo
 logger = logging.getLogger("devt")
 
 
+def update_repo(repo_dir: Path, branch: str = None) -> Path:
+    """
+    Update a git repository.
+    """
+    repo = Repo(repo_dir)
+    if repo.is_dirty():
+        logger.warning(
+            "Repository %s is dirty. Resetting to a clean state...", repo_dir
+        )
+        repo.git.reset("--hard")
+    logger.info("Updating repository %s...", repo_dir)
+    repo.remotes.origin.pull()
+    return repo_dir
+
+
 def clone_or_update_repo(repo_url: str, base_dir: Path, branch: str = None) -> Path:
     """
     Clone or update a git repository.
@@ -16,14 +31,7 @@ def clone_or_update_repo(repo_url: str, base_dir: Path, branch: str = None) -> P
 
     try:
         if repo_dir.exists():
-            repo = Repo(repo_dir)
-            if repo.is_dirty():
-                logger.warning(
-                    "Repository %s is dirty. Resetting to a clean state...", repo_name
-                )
-                repo.git.reset("--hard")
-            logger.info("Updating repository %s...", repo_name)
-            repo.remotes.origin.pull()
+            update_repo(repo_dir, branch=branch)
         else:
             logger.info("Cloning repository %s...", repo_url)
             Repo.clone_from(repo_url, repo_dir, branch=branch or "main")
