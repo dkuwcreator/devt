@@ -1,17 +1,23 @@
 # devt/cli.py
 import json
+import logging
 import subprocess
 import shutil
 import os
 from pathlib import Path
 from typing import List, Optional
 import typer
-import logging
+from typer_config.decorators import (
+    use_yaml_config,  # other formats available
+    dump_yaml_config,
+)
 
-from . import __version__
+
+from devt import __version__
 
 # Import functions and constants from our modules
 from devt.config import (
+    logger,
     REGISTRY_DIR,
     WORKSPACE_REGISTRY_DIR,
     REGISTRY_FILE,
@@ -31,22 +37,47 @@ from devt.executor import (
     execute_command,
 )
 
-
 app = typer.Typer(help="DevT: A tool for managing development tool packages.")
 
-# Create sub-apps for repository commands and local package commands.
-repo_app = typer.Typer(help="Commands for repository-based tools.")
-local_app = typer.Typer(help="Commands for local package-based tools.")
 
-# Attach sub-apps to the main app.
-app.add_typer(repo_app, name="repo")
-app.add_typer(local_app, name="local")
+# Define a callback to set global log level or other config
+@app.callback()
+@use_yaml_config()  # before dump decorator
+@dump_yaml_config(WORKSPACE_REGISTRY_DIR / "config.yml")  # after use decorator
+def main(
+    ctx: typer.Context,
+    log_level: str = typer.Option(
+        "WARNING",
+        help="Global log level (DEBUG, INFO, WARNING, ERROR). "
+        "Default is WARNING. Overridable via DEVT_LOG_LEVEL env var.",
+    ),
+):
+    """
+    Global callback to configure logging before any commands run.
+    """
+    # Convert the string (e.g., "DEBUG") to a numeric level (e.g., logging.DEBUG).
+    LOG_LEVELS = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR,
+    }
+
+    # Set up the root logger (or configure more sophisticated logging here)
+    logger.setLevel(LOG_LEVELS.get(log_level.upper(), logging.WARNING))
+
+    # If you want to prevent "No command provided" confusion, you can handle
+    # the case where no subcommand was invoked:
+    if not ctx.invoked_subcommand:
+        # For example, show help or a message:
+        typer.echo("No command provided. Use --help for usage.")
+        raise typer.Exit()
 
 
 # ---------------------------------------------------------------------------
 # Repository-based commands
 # ---------------------------------------------------------------------------
-@repo_app.command("add")
+@app.command("add")
 def add_repo(
     source: str,
     branch: str = typer.Option(None, help="Specify the branch for repository sources."),
@@ -64,7 +95,6 @@ def add_repo(
     """
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
     registry_file = app_dir / "registry.json"
-    logger = logging.getLogger("devt")
     typer.echo(f"Adding repository tools to registry from {registry_file}...")
     registry = load_json(registry_file)
     try:
@@ -88,7 +118,7 @@ def add_repo(
         logger.exception("An error occurred while adding repository tools: %s", e)
 
 
-@repo_app.command("remove")
+@app.command("remove")
 def remove_repo(
     repo_name: str = typer.Argument(
         ..., help="Name of the repository (group) to remove."
@@ -106,7 +136,6 @@ def remove_repo(
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
     registry_file = app_dir / "registry.json"
     registry = load_json(registry_file)
-    logger = logging.getLogger("devt")
 
     # Identify entries that are from a repository and belong to the group.
     repo_entries = {
@@ -155,7 +184,7 @@ def remove_repo(
     )
 
 
-@repo_app.command("sync")
+@app.command("sync")
 def sync_repos(
     workspace: bool = typer.Option(
         False, help="Sync repositories from workspace registry."
@@ -175,7 +204,7 @@ def sync_repos(
 # ---------------------------------------------------------------------------
 # Local package commands
 # ---------------------------------------------------------------------------
-@local_app.command("import")
+@app.command("import")
 def import_package(
     local_path: str,
     group: Optional[str] = typer.Option(
@@ -202,7 +231,6 @@ def import_package(
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
     registry_file = app_dir / "registry.json"
     registry = load_json(registry_file)
-    logger = logging.getLogger("devt")
 
     local_path_obj = Path(local_path).resolve()
     if not local_path_obj.exists():
@@ -302,7 +330,7 @@ def import_package(
     typer.echo(f"Imported local package(s) into group '{group_name}'.")
 
 
-@local_app.command("delete")
+@app.command("delete")
 def delete_tool_or_group(
     name: str = typer.Argument(
         ..., help="Identifier of the local tool to delete or group name to delete."
@@ -321,7 +349,6 @@ def delete_tool_or_group(
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
     registry_file = app_dir / "registry.json"
     registry = load_json(registry_file)
-    logger = logging.getLogger("devt")
 
     if group:
         tools_in_group = {
@@ -374,7 +401,7 @@ def delete_tool_or_group(
         typer.echo(f"Deleted local tool '{name}'.")
 
 
-@local_app.command("export")
+@app.command("export")
 def export_tool_or_group(
     name: str = typer.Argument(
         ..., help="Identifier of the local tool to export or group name."
@@ -397,7 +424,6 @@ def export_tool_or_group(
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
     registry_file = app_dir / "registry.json"
     registry = load_json(registry_file)
-    logger = logging.getLogger("devt")
     dest = Path(destination).resolve()
 
     if group:
@@ -445,7 +471,7 @@ def export_tool_or_group(
         typer.echo(f"Exported tool '{name}' to {tool_dest}")
 
 
-@local_app.command("rename-group")
+@app.command("rename-group")
 def rename_group(
     old_name: str = typer.Argument(..., help="Current group name."),
     new_name: str = typer.Argument(..., help="New group name."),
@@ -461,7 +487,6 @@ def rename_group(
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
     registry_file = app_dir / "registry.json"
     registry = load_json(registry_file)
-    logger = logging.getLogger("devt")
 
     tools_in_group = {
         tool: data
@@ -514,7 +539,7 @@ def rename_group(
     typer.echo(f"Group renamed from '{old_name}' to '{new_name}' in registry.")
 
 
-@local_app.command("move-tool")
+@app.command("move")
 def move_tool(
     tool_name: str = typer.Argument(..., help="Identifier of the local tool to move."),
     new_group: str = typer.Argument(
@@ -532,7 +557,6 @@ def move_tool(
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
     registry_file = app_dir / "registry.json"
     registry = load_json(registry_file)
-    logger = logging.getLogger("devt")
 
     if tool_name not in registry:
         logger.error("Local tool '%s' not found in registry.", tool_name)
@@ -591,32 +615,186 @@ def move_tool(
 # ---------------------------------------------------------------------------
 @app.command("list")
 def list_tools(
-    workspace: bool = typer.Option(False, help="List tools from workspace registry.")
+    user_level: bool = typer.Option(
+        False, "--user", help="List only user-level tools."
+    ),
+    workspace_level: bool = typer.Option(
+        False, "--workspace", help="List only workspace-level tools."
+    ),
+    all_tools: bool = typer.Option(
+        False, "--all", help="Include inactive tools as well."
+    ),
 ):
     """
-    List all tools in the registry.
+    List tools from the user and/or workspace registry in a concise table.
     """
-    logger = logging.getLogger("devt")
-    if not workspace:
-        logger.info("Listing tools from registry %s...", REGISTRY_FILE)
-        registry = load_json(REGISTRY_FILE)
-        for name, value in registry.items():
-            if value.get("active", True):
-                logger.info("%s: %s", name, value.get("source"))
-    else:
+
+    # If neither flag is specified, list both user and workspace registries by default
+    if not user_level and not workspace_level:
+        user_level = True
+        workspace_level = True
+
+    def load_registry(file_path: Path, scope: str) -> list[dict]:
+        """
+        Load each tool from a JSON file and return a list of dicts
+        with the fields we want to display.
+        """
+        data = load_json(file_path) or {}
+        tools = []
+        for registry_key, info in data.items():
+            manifest = info.get("manifest", {})
+            tools.append(
+                {
+                    "registry_key": registry_key,
+                    "name": manifest.get("name", registry_key),
+                    "description": manifest.get("description", ""),
+                    "command": manifest.get("command", ""),
+                    "active": info.get("active", True),
+                    "source": info.get("source", ""),
+                    "added": info.get("added", ""),
+                    "scope": scope,  # "user" or "workspace"
+                }
+            )
+        return tools
+
+    # Gather tools from the appropriate registries
+    found_tools = []
+    if user_level:
+        found_tools.extend(load_registry(REGISTRY_FILE, "user"))
+    if workspace_level:
+        found_tools.extend(load_registry(WORKSPACE_REGISTRY_FILE, "workspace"))
+
+    # If not --all, filter out inactive tools
+    if not all_tools:
+        found_tools = [t for t in found_tools if t["active"]]
+
+    if not found_tools:
+        logger.info("No tools found.")
+        return
+
+    # Print a header
+    logger.info("Listing tools:\n")
+    header = f"{'Name':<18} {'Command':<10} {'Active':<7} {'Source':<40} {'Added'}"
+    logger.info(header)
+    logger.info("-" * len(header))
+
+    # Print each tool in a fixed-width column format
+    for tool in found_tools:
+        name = tool["name"]
+        command = tool["command"]
+        active_str = "Yes" if tool["active"] else "No"
+        source_str = tool["source"]
+        # Strip microseconds from the date/time if present
+        added_str = tool["added"].split(".")[0]
+
         logger.info(
-            "Listing tools from workspace registry %s...", WORKSPACE_REGISTRY_FILE
+            f"{name[:17]:<18} "
+            f"{command[:9]:<10} "
+            f"{active_str:<7} "
+            f"{source_str[:39]:<40} "
+            f"{added_str}"
         )
-        registry = load_json(WORKSPACE_REGISTRY_FILE)
-        for name, value in registry.items():
-            logger.info("%s: %s", name, value.get("source"))
+
+
+def find_tool_in_registry(tool_name: str, registry_file: Path) -> Optional[dict]:
+    """
+    Looks for `tool_name` in the given registry_file.
+    Returns the tool info dict if found, otherwise None.
+    """
+    registry_data = load_json(registry_file)
+    return registry_data.get(tool_name)
+
+
+@app.command("info")
+def show_tool_info(
+    ctx: typer.Context,
+    tool_name: str = typer.Argument(..., help="Name (key) of the tool to show info."),
+    all_tools: bool = typer.Option(False, "--all", help="Show inactive tool info too."),
+):
+    """
+    Show detailed information about a single tool, checking workspace first, then user-level.
+    If the tool is inactive and --all is not used, it won't be shown.
+    """
+    # 1. Check workspace registry first
+    workspace_tool = find_tool_in_registry(tool_name, WORKSPACE_REGISTRY_FILE)
+    if workspace_tool:
+        found_tool = workspace_tool
+        scope = "workspace"
+    else:
+        # 2. If not found in workspace, check user registry
+        user_tool = find_tool_in_registry(tool_name, REGISTRY_FILE)
+        if user_tool:
+            found_tool = user_tool
+            scope = "user"
+        else:
+            # 3. Not found in either registry
+            typer.echo(
+                f"No tool named '{tool_name}' found in workspace or user registry."
+            )
+            raise typer.Exit(code=0)
+
+    # 4. If the tool is inactive, skip unless --all is provided
+    is_active = found_tool.get("active", True)
+    if not all_tools and not is_active:
+        typer.echo(f"Tool '{tool_name}' is inactive. Use --all to see inactive tools.")
+        raise typer.Exit(code=0)
+
+    # 5. Extract high-level info
+    manifest = found_tool.get("manifest", {})
+    name = manifest.get("name", tool_name)
+    description = manifest.get("description", "")
+    command = manifest.get("command", "")
+    source = found_tool.get("source", "")
+    location = found_tool.get("location", "")
+    added = found_tool.get("added", "")
+    auto_sync = found_tool.get("auto_sync", False)
+
+    # 6. Print summary info using typer.echo for user-friendly output
+    typer.echo("─" * 60)
+    typer.echo(f"Tool Name:      {name}")
+    typer.echo(f"Registry Key:   {tool_name}")
+    typer.echo(f"Scope:          {scope}")
+    typer.echo(f"Active:         {is_active}")
+    typer.echo(f"Source:         {source}")
+    typer.echo(f"Location:       {location}")
+    typer.echo(f"Added:          {added}")
+    typer.echo(f"Auto Sync:      {auto_sync}")
+    typer.echo(f"Description:    {description}")
+    typer.echo(f"Command:        {command}")
+    typer.echo("─" * 60)
+
+    # 7. Print Dependencies (if any)
+    dependencies = manifest.get("dependencies", {})
+    if dependencies:
+        typer.echo("Dependencies:")
+        for dep_name, dep_version in dependencies.items():
+            typer.echo(f"  • {dep_name}: {dep_version}")
+        typer.echo("")
+
+    # 8. Print scripts (if any)
+    scripts = manifest.get("scripts", {})
+    if not scripts:
+        typer.echo("No scripts defined.")
+        return
+
+    typer.echo("Scripts:")
+    # scripts might have top-level items plus subdicts for "windows" or "posix"
+    for key, value in scripts.items():
+        if isinstance(value, dict):
+            # e.g., "windows": {"install": "...", "update": "..."}
+            for sub_name, sub_cmd in value.items():
+                typer.echo(f"  • {key}/{sub_name}: {sub_cmd}")
+        else:
+            # e.g., "install": "echo 'Installed on all platforms'"
+            typer.echo(f"  • {key}: {value}")
+    typer.echo("─" * 60)
 
 
 @app.command("init")
 def init_project():
     """
     Initialize the current project by creating a workspace.json configuration file.
-    
+
     This file will be added to the workspace registry under the key "workspace".
     """
     project_file = Path.cwd() / "workspace.json"
@@ -624,15 +802,15 @@ def init_project():
         typer.echo("workspace.json already exists in the current directory.")
         raise typer.Exit()
     default_config = {
-         "tools": {},
-         "scripts": {
-              "test": "echo 'Run project tests'",
-              "deploy": "echo 'Deploy project'",
-              "destroy": "echo 'Destroy project resources'"
-         }
+        "tools": {},
+        "scripts": {
+            "test": "echo 'Run project tests'",
+            "deploy": "echo 'Deploy project'",
+            "destroy": "echo 'Destroy project resources'",
+        },
     }
     with project_file.open("w") as f:
-         json.dump(default_config, f, indent=4)
+        json.dump(default_config, f, indent=4)
     typer.echo("Initialized project with workspace.json.")
 
 
@@ -640,14 +818,15 @@ def init_project():
 def do(
     tool_name: str = typer.Argument(..., help="The tool to run the script for."),
     script_name: str = typer.Argument(..., help="The name of the script to run."),
-    additional_args: List[str] = typer.Argument(None, help="Additional arguments to pass to the script."),
+    additional_args: List[str] = typer.Argument(
+        None, help="Additional arguments to pass to the script."
+    ),
 ):
     """
     Run a specified script for the given tool.
-    
+
     The tool is looked up first in the workspace registry, then in the user registry.
     """
-    logger = logging.getLogger("devt")
     shell = "posix" if os.name != "nt" else "windows"
 
     # Lookup the tool from the registries.
@@ -663,6 +842,7 @@ def do(
     # If auto_sync is enabled, update the repository.
     if tool.get("auto_sync", False):
         from devt.git_ops import clone_or_update_repo
+
         repo_name = tool.get("dir")
         repo_dir = Path(registry_dir) / repo_name
         logger.info("Auto-syncing repository for tool '%s'...", tool_name)
@@ -677,12 +857,12 @@ def do(
 
     full_command = build_full_command(cmd, additional_args)
     logger.info("Full command string: %s", full_command)
-    
+
     new_cwd = resolve_working_directory(tool, registry_dir)
     logger.info("Resolved working directory: %s", new_cwd)
     if not new_cwd.exists():
         raise ValueError(f"Error: Working directory '{new_cwd}' does not exist.")
-    
+
     execute_command(full_command, new_cwd)
 
 
@@ -757,9 +937,29 @@ def test(
     for tool in tools:
         do(tool, "test")
 
+
 @app.command()
-def version():
+def my_version():
     typer.echo(f"Version: {__version__}")
 
-if __name__ == "__main__":
+@app.command()
+def my_upgrade():
+    typer.echo("Upgrading devt...")
+    subprocess.run("pwsh -Command \"iwr -useb https://raw.githubusercontent.com/dkuwcreator/devt/main/install.ps1 | iex\"", check=True, shell=True)
+
+
+# ------------------------------------------------------------------------------
+# Final entry point using a main() function
+# ------------------------------------------------------------------------------
+def entry():
+    """
+    Entry point when calling python cli.py directly.
+
+    If you install this as a package (e.g. via setup.py/pyproject.toml),
+    you could have a console_script entry point that calls main().
+    """
     app()
+
+
+if __name__ == "__main__":
+    entry()

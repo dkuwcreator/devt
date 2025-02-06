@@ -11,9 +11,12 @@ pyinstaller==6.11.1
 pyinstaller-hooks-contrib==2025.1
 python-dotenv==1.0.1
 pywin32-ctypes==0.2.3
+PyYAML==6.0.2
 referencing==0.36.2
 rpds-py==0.22.3
 setuptools==75.8.0
 smmap==5.0.2
+toml==0.10.2
 typer==0.3.2
+typer-config==1.4.2
 typing_extensions==4.12.2

@@ -2,6 +2,7 @@
 import logging
 import os
 from pathlib import Path
+import winreg
 import typer
 
 # Directories and Constants
@@ -27,7 +28,7 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Logger setup
 logger = logging.getLogger("devt")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.WARNING)
 file_handler = logging.FileHandler(LOG_FILE)
 stream_handler = logging.StreamHandler()
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -35,3 +36,37 @@ file_handler.setFormatter(formatter)
 stream_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
+
+def set_user_environment_var(name: str, value: str):
+    """
+    Set a user environment variable that persists across sessions.
+    """
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
+        ) as key:
+            winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+            logger.info("Set user environment variable: %s=%s", name, value)
+    except OSError:
+        logger.error("Failed to set user environment variable %s", name)
+
+
+def setup_environment():
+    """
+    Initialize the environment by creating necessary directories and
+    setting environment variables.
+    """
+    USER_APP_DIR.mkdir(parents=True, exist_ok=True)
+    TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    os.environ["DEVT_USER_APP_DIR"] = str(USER_APP_DIR)
+    os.environ["DEVT_WORKSPACE_DIR"] = str(WORKSPACE_DIR)
+
+    set_user_environment_var("DEVT_USER_APP_DIR", str(USER_APP_DIR))
+    set_user_environment_var("DEVT_WORKSPACE_DIR", str(WORKSPACE_DIR))
+
+    logger.info("Environment variables set successfully")
+
+setup_environment()
