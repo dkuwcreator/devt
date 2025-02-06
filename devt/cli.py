@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import List, Optional
 import typer
+
 # from typer_config.decorators import (
 #     use_yaml_config,  # other formats available
 #     dump_yaml_config,
@@ -629,17 +630,11 @@ def list_tools(
     """
     List tools from the user and/or workspace registry in a concise table.
     """
-
-    # If neither flag is specified, list both user and workspace registries by default
     if not user_level and not workspace_level:
         user_level = True
         workspace_level = True
 
-    def load_registry(file_path: Path, scope: str) -> list[dict]:
-        """
-        Load each tool from a JSON file and return a list of dicts
-        with the fields we want to display.
-        """
+    def load_registry(file_path: Path, scope: str) -> List[dict]:
         data = load_json(file_path) or {}
         tools = []
         for registry_key, info in data.items():
@@ -653,47 +648,35 @@ def list_tools(
                     "active": info.get("active", True),
                     "source": info.get("source", ""),
                     "added": info.get("added", ""),
-                    "scope": scope,  # "user" or "workspace"
+                    "scope": scope,
                 }
             )
         return tools
 
-    # Gather tools from the appropriate registries
     found_tools = []
     if user_level:
         found_tools.extend(load_registry(REGISTRY_FILE, "user"))
     if workspace_level:
         found_tools.extend(load_registry(WORKSPACE_REGISTRY_FILE, "workspace"))
 
-    # If not --all, filter out inactive tools
     if not all_tools:
         found_tools = [t for t in found_tools if t["active"]]
 
     if not found_tools:
-        logger.info("No tools found.")
+        typer.echo("No tools found.")
         return
 
-    # Print a header
-    logger.info("Listing tools:\n")
     header = f"{'Name':<18} {'Command':<10} {'Active':<7} {'Source':<40} {'Added'}"
-    logger.info(header)
-    logger.info("-" * len(header))
+    typer.echo(header)
+    typer.echo("-" * len(header))
 
-    # Print each tool in a fixed-width column format
     for tool in found_tools:
-        name = tool["name"]
-        command = tool["command"]
-        active_str = "Yes" if tool["active"] else "No"
-        source_str = tool["source"]
-        # Strip microseconds from the date/time if present
-        added_str = tool["added"].split(".")[0]
-
-        logger.info(
-            f"{name[:17]:<18} "
-            f"{command[:9]:<10} "
-            f"{active_str:<7} "
-            f"{source_str[:39]:<40} "
-            f"{added_str}"
+        typer.echo(
+            f"{tool['name'][:17]:<18} "
+            f"{tool['command'][:9]:<10} "
+            f"{'Yes' if tool['active'] else 'No':<7} "
+            f"{tool['source'][:39]:<40} "
+            f"{tool['added'].split('.')[0]}"
         )
 
 
@@ -708,63 +691,44 @@ def find_tool_in_registry(tool_name: str, registry_file: Path) -> Optional[dict]
 
 @app.command("info")
 def show_tool_info(
-    ctx: typer.Context,
     tool_name: str = typer.Argument(..., help="Name (key) of the tool to show info."),
     all_tools: bool = typer.Option(False, "--all", help="Show inactive tool info too."),
 ):
     """
     Show detailed information about a single tool, checking workspace first, then user-level.
-    If the tool is inactive and --all is not used, it won't be shown.
     """
-    # 1. Check workspace registry first
     workspace_tool = find_tool_in_registry(tool_name, WORKSPACE_REGISTRY_FILE)
     if workspace_tool:
         found_tool = workspace_tool
         scope = "workspace"
     else:
-        # 2. If not found in workspace, check user registry
         user_tool = find_tool_in_registry(tool_name, REGISTRY_FILE)
         if user_tool:
             found_tool = user_tool
             scope = "user"
         else:
-            # 3. Not found in either registry
-            typer.echo(
-                f"No tool named '{tool_name}' found in workspace or user registry."
-            )
+            typer.echo(f"No tool named '{tool_name}' found.")
             raise typer.Exit(code=0)
 
-    # 4. If the tool is inactive, skip unless --all is provided
     is_active = found_tool.get("active", True)
     if not all_tools and not is_active:
         typer.echo(f"Tool '{tool_name}' is inactive. Use --all to see inactive tools.")
         raise typer.Exit(code=0)
 
-    # 5. Extract high-level info
     manifest = found_tool.get("manifest", {})
-    name = manifest.get("name", tool_name)
-    description = manifest.get("description", "")
-    command = manifest.get("command", "")
-    source = found_tool.get("source", "")
-    location = found_tool.get("location", "")
-    added = found_tool.get("added", "")
-    auto_sync = found_tool.get("auto_sync", False)
-
-    # 6. Print summary info using typer.echo for user-friendly output
     typer.echo("─" * 60)
-    typer.echo(f"Tool Name:      {name}")
+    typer.echo(f"Tool Name:      {manifest.get('name', tool_name)}")
     typer.echo(f"Registry Key:   {tool_name}")
     typer.echo(f"Scope:          {scope}")
     typer.echo(f"Active:         {is_active}")
-    typer.echo(f"Source:         {source}")
-    typer.echo(f"Location:       {location}")
-    typer.echo(f"Added:          {added}")
-    typer.echo(f"Auto Sync:      {auto_sync}")
-    typer.echo(f"Description:    {description}")
-    typer.echo(f"Command:        {command}")
+    typer.echo(f"Source:         {found_tool.get('source', '')}")
+    typer.echo(f"Location:       {found_tool.get('location', '')}")
+    typer.echo(f"Added:          {found_tool.get('added', '')}")
+    typer.echo(f"Auto Sync:      {found_tool.get('auto_sync', False)}")
+    typer.echo(f"Description:    {manifest.get('description', '')}")
+    typer.echo(f"Command:        {manifest.get('command', '')}")
     typer.echo("─" * 60)
 
-    # 7. Print Dependencies (if any)
     dependencies = manifest.get("dependencies", {})
     if dependencies:
         typer.echo("Dependencies:")
@@ -772,21 +736,17 @@ def show_tool_info(
             typer.echo(f"  • {dep_name}: {dep_version}")
         typer.echo("")
 
-    # 8. Print scripts (if any)
     scripts = manifest.get("scripts", {})
     if not scripts:
         typer.echo("No scripts defined.")
         return
 
     typer.echo("Scripts:")
-    # scripts might have top-level items plus subdicts for "windows" or "posix"
     for key, value in scripts.items():
         if isinstance(value, dict):
-            # e.g., "windows": {"install": "...", "update": "..."}
             for sub_name, sub_cmd in value.items():
                 typer.echo(f"  • {key}/{sub_name}: {sub_cmd}")
         else:
-            # e.g., "install": "echo 'Installed on all platforms'"
             typer.echo(f"  • {key}: {value}")
     typer.echo("─" * 60)
 
@@ -943,10 +903,15 @@ def test(
 def my_version():
     typer.echo(f"Version: {__version__}")
 
+
 @app.command()
 def my_upgrade():
     typer.echo("Upgrading devt...")
-    subprocess.run("pwsh -Command \"iwr -useb https://raw.githubusercontent.com/dkuwcreator/devt/main/install.ps1 | iex\"", check=True, shell=True)
+    subprocess.run(
+        'pwsh -Command "iwr -useb https://raw.githubusercontent.com/dkuwcreator/devt/main/install.ps1 | iex"',
+        check=True,
+        shell=True,
+    )
 
 
 # ------------------------------------------------------------------------------
