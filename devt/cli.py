@@ -953,21 +953,29 @@ def my_version():
 
 
 def check_for_update(current_version):
-    response = requests.get(
-        "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
-    )
-    response.raise_for_status()
-    latest_version = response.json()["tag_name"]
-    print(f"Latest version: {latest_version}")
-    print(latest_version if latest_version != current_version else None)
-    return latest_version if latest_version != current_version else None
+    try:
+        response = requests.get(
+            "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
+        )
+        response.raise_for_status()
+        latest_version = response.json()["tag_name"]
+        logger.info(f"Latest version: {latest_version}")
+        return latest_version if latest_version != current_version else None
+    except requests.RequestException as e:
+        logger.error(f"Failed to check for updates: {e}")
+        return None
 
 
 def download_latest_version(url, download_path):
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-    with open(download_path, "wb") as file:
-        shutil.copyfileobj(response.raw, file)
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        with open(download_path, "wb") as file:
+            shutil.copyfileobj(response.raw, file)
+        logger.info(f"Downloaded latest version to {download_path}")
+    except requests.RequestException as e:
+        logger.error(f"Failed to download the latest version: {e}")
+        raise
 
 
 @app.command()
