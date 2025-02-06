@@ -975,6 +975,7 @@ def my_upgrade():
     import sys
 
     current_version = __version__
+    typer.echo(f"Current version: {current_version}")
     typer.echo("Checking for updates...")
     latest_version = check_for_update(current_version)
 
@@ -987,8 +988,13 @@ def my_upgrade():
 
         # Replace the current version with the new one
         current_executable = sys.executable
-        os.replace(download_path, current_executable)
-        typer.echo("Upgrade complete!")
+        try:
+            logger.info("Replacing the current executable with the new version...")
+            os.replace(download_path, current_executable)
+            typer.echo("Upgrade complete!")
+        except Exception as e:
+            logger.error("Failed to replace the current executable: %s", e)
+            typer.echo("Upgrade failed. Please try again.")
     else:
         typer.echo("You are already using the latest version.")
 
