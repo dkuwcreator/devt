@@ -18,6 +18,7 @@ from devt import __version__
 
 # Import functions and constants from our modules
 from devt.config import (
+    configure_logging,
     logger,
     REGISTRY_DIR,
     WORKSPACE_REGISTRY_DIR,
@@ -28,7 +29,7 @@ from devt.config import (
 )
 from devt.utils import load_json, on_exc, save_json, determine_source
 from devt.git_ops import clone_or_update_repo, update_repo
-from devt.registry import update_registry, update_registry_with_workspace
+from devt.registry import update_tool_in_registry
 from devt.package_ops import add_local, delete_local_package, sync_repositories
 from devt.executor import (
     get_tool,
@@ -57,16 +58,9 @@ def main(
     """
     Global callback to configure logging before any commands run.
     """
-    # Convert the string (e.g., "DEBUG") to a numeric level (e.g., logging.DEBUG).
-    LOG_LEVELS = {
-        "DEBUG": logging.DEBUG,
-        "INFO": logging.INFO,
-        "WARNING": logging.WARNING,
-        "ERROR": logging.ERROR,
-    }
 
-    # Set up the root logger (or configure more sophisticated logging here)
-    logger.setLevel(LOG_LEVELS.get(log_level.upper(), logging.WARNING))
+    # Call the configure_logging function
+    configure_logging(log_level)
 
     # If you want to prevent "No command provided" confusion, you can handle
     # the case where no subcommand was invoked:
@@ -79,6 +73,22 @@ def main(
 # ---------------------------------------------------------------------------
 # Repository-based commands
 # ---------------------------------------------------------------------------
+def update_registry_with_tools(
+    tool_dirs, registry_file, registry, source, branch, auto_sync
+):
+    registry = load_json(registry_file)
+    for tool_dir in tool_dirs:
+        registry = update_tool_in_registry(
+            tool_dir,
+            registry_file,
+            registry,
+            source,
+            branch,
+            auto_sync=auto_sync,
+        )
+    save_json(registry_file, registry)
+
+
 @app.command("add")
 def add_repo(
     source: str,
@@ -103,18 +113,28 @@ def add_repo(
         if dry_run:
             typer.echo(f"Dry run: would clone or update repository {source}")
             raise typer.Exit()
-        repo_dir = clone_or_update_repo(source, app_dir, branch)
+        repo_dir, branch = clone_or_update_repo(source, app_dir, branch)
         # Find each manifest.json and use its parent directory as a tool folder.
         tool_dirs = [manifest.parent for manifest in repo_dir.rglob("manifest.json")]
-        for tool_dir in tool_dirs:
-            registry = update_registry(
-                tool_dir,
-                registry_file,
-                registry,
-                source,
-                auto_sync=auto_sync,
-            )
-        save_json(registry_file, registry)
+        if not tool_dirs:
+            logger.warning("No tools found in repository: %s", source)
+            if repo_dir.exists():
+                try:
+                    shutil.rmtree(repo_dir, onexc=on_exc)
+                    typer.echo(
+                        f"Repository '{repo_dir.stem}' removed successfully from disk."
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Failed to remove repository '%s': %s", repo_dir.stem, e
+                    )
+                    raise
+                return
+            else:
+                logger.warning("Repository directory not found: %s", repo_dir)
+        update_registry_with_tools(
+            tool_dirs, registry_file, registry, source, branch, auto_sync
+        )
         typer.echo("Repository tools successfully added to the registry.")
     except Exception as e:
         logger.exception("An error occurred while adding repository tools: %s", e)
@@ -231,11 +251,12 @@ def sync_repos(
                 logger.info(f"Updating registry for tool directory: {tool_dir}")
 
                 if tools:
-                    registry = update_registry(
+                    registry = update_tool_in_registry(
                         tool_dir,
                         registry_file,
                         registry,
-                        tools[0].get("source"),
+                        tools[0].get("source", ""),
+                        tools[0].get("branch", None),
                         tools[0].get("auto_sync", True),
                     )
                 else:
@@ -364,7 +385,7 @@ def import_package(
 
     # Update the registry for each detected tool package.
     for tool_dir in tool_dirs:
-        registry = update_registry(
+        registry = update_tool_in_registry(
             tool_dir,
             registry_file,
             registry,
@@ -850,12 +871,25 @@ def do(
 
     # If auto_sync is enabled, update the repository.
     if tool.get("auto_sync", False):
-        from devt.git_ops import clone_or_update_repo
 
         repo_name = tool.get("dir")
         repo_dir = Path(registry_dir) / repo_name
         logger.info("Auto-syncing repository for tool '%s'...", tool_name)
-        clone_or_update_repo(tool["source"], repo_dir, branch=None)
+        repo_dir, branch = clone_or_update_repo(
+            tool.get("source", ""), repo_dir, branch=tool.get("branch", None)
+        )
+        logger.info("Repository auto-synced successfully.")
+        tool_dirs = [manifest.parent for manifest in repo_dir.rglob("manifest.json")]
+        for tool_dir in tool_dirs:
+            registry = update_tool_in_registry(
+                tool_dir,
+                Path(registry_dir) / "registry.json",
+                load_json(Path(registry_dir) / "registry.json"),
+                tool.get("source", ""),
+                branch,
+                auto_sync=tool.get("auto_sync", False),
+            )
+        save_json(Path(registry_dir) / "registry.json", registry)
         # Re-read the tool entry in case the manifest has changed.
         try:
             tool, registry_dir = get_tool(tool_name)
@@ -990,7 +1024,7 @@ def my_upgrade():
     if latest_version:
         typer.echo(f"New version available: {latest_version}. Downloading...")
         download_url = f"https://github.com/dkuwcreator/devt/releases/download/{latest_version}/devt.exe"
-        temp_folder = Path(os.getenv('TEMP', '/tmp'))
+        temp_folder = Path(os.getenv("TEMP", "/tmp"))
         download_path = temp_folder / f"devt_{latest_version}.exe"
         download_latest_version(download_url, download_path)
 

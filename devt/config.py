@@ -26,6 +26,14 @@ WORKSPACE_FILE = WORKSPACE_DIR / "workspace.json"
 USER_APP_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Convert the string (e.g., "DEBUG") to a numeric level (e.g., logging.DEBUG).
+LOG_LEVELS = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+}
+
 # Logger setup
 logger = logging.getLogger("devt")
 logger.setLevel(logging.WARNING)
@@ -36,6 +44,16 @@ file_handler.setFormatter(formatter)
 stream_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
+
+def configure_logging(log_level: str):
+    """
+    Configure the logging level based on the provided log level string.
+    """
+    level = LOG_LEVELS.get(log_level.upper())
+    if level is None:
+        logger.warning("Log level '%s' is not recognized. Defaulting to WARNING.", log_level)
+        level = logging.WARNING
+    logger.setLevel(level)
 
 def set_user_environment_var(name: str, value: str):
     """

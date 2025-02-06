@@ -18,11 +18,15 @@ def update_repo(repo_dir: Path, branch: str = None) -> Path:
         )
         repo.git.reset("--hard")
     logger.info("Updating repository %s...", repo_dir)
+    if branch:
+        repo.git.checkout(branch)
     repo.remotes.origin.pull()
     return repo_dir
 
 
-def clone_or_update_repo(repo_url: str, base_dir: Path, branch: str = None) -> Path:
+from typing import Tuple
+
+def clone_or_update_repo(repo_url: str, base_dir: Path, branch: str = None) -> Tuple[Path, str]:
     """
     Clone or update a git repository.
     """
@@ -34,9 +38,13 @@ def clone_or_update_repo(repo_url: str, base_dir: Path, branch: str = None) -> P
             update_repo(repo_dir, branch=branch)
         else:
             logger.info("Cloning repository %s...", repo_url)
-            Repo.clone_from(repo_url, repo_dir, branch=branch or "main")
+            if branch is None:
+                repo = Repo.clone_from(repo_url, repo_dir)
+                branch = repo.active_branch.name
+            else:
+                Repo.clone_from(repo_url, repo_dir, branch=branch)
     except Exception as e:
         logger.error("Failed to clone or update repository %s: %s", repo_url, e)
         raise
 
-    return repo_dir
+    return repo_dir, branch

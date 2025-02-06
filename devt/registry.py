@@ -9,7 +9,7 @@ from .manifest import validate_manifest
 
 logger = logging.getLogger("devt")
 
-def update_registry(tool_dir: Path, registry_file: Path, registry: dict, source: str, auto_sync: bool = True) -> dict:
+def update_tool_in_registry(tool_dir: Path, registry_file: Path, registry: dict, source: str, branch: str = None, auto_sync: bool = True) -> dict:
     """
     Update the tool registry with information from a manifest file.
     """
@@ -36,6 +36,7 @@ def update_registry(tool_dir: Path, registry_file: Path, registry: dict, source:
         "source": str(source),
         "dir": second_position,
         "active": True,
+        "branch": branch,
         "auto_sync": auto_sync,
     }
     command = manifest.get("command")
@@ -69,6 +70,7 @@ def update_registry_with_workspace(registry_file: Path, registry: dict, workspac
         "source": str(workspace_dir),
         "dir": second_position,
         "active": True,
+        "branch": None,
         "auto_sync": auto_sync,
     }
     command = "workspace"
