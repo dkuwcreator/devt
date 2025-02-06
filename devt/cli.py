@@ -7,10 +7,10 @@ import os
 from pathlib import Path
 from typing import List, Optional
 import typer
-from typer_config.decorators import (
-    use_yaml_config,  # other formats available
-    dump_yaml_config,
-)
+# from typer_config.decorators import (
+#     use_yaml_config,  # other formats available
+#     dump_yaml_config,
+# )
 
 
 from devt import __version__
@@ -41,9 +41,10 @@ app = typer.Typer(help="DevT: A tool for managing development tool packages.")
 
 
 # Define a callback to set global log level or other config
+# @app.callback()
+# @use_yaml_config()  # before dump decorator
+# @dump_yaml_config(WORKSPACE_REGISTRY_DIR / "config.yml")  # after use decorator
 @app.callback()
-@use_yaml_config()  # before dump decorator
-@dump_yaml_config(WORKSPACE_REGISTRY_DIR / "config.yml")  # after use decorator
 def main(
     ctx: typer.Context,
     log_level: str = typer.Option(
