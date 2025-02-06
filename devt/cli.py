@@ -1,11 +1,11 @@
 # devt/cli.py
 import json
 import logging
-import subprocess
 import shutil
 import os
 from pathlib import Path
 from typing import List, Optional
+import requests
 import typer
 
 # from typer_config.decorators import (
@@ -952,14 +952,45 @@ def my_version():
     typer.echo(f"Version: {__version__}")
 
 
+def check_for_update(current_version):
+    response = requests.get(
+        "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
+    )
+    response.raise_for_status()
+    latest_version = response.json()["tag_name"]
+    print(f"Latest version: {latest_version}")
+    print(latest_version if latest_version != current_version else None)
+    return latest_version if latest_version != current_version else None
+
+
+def download_latest_version(url, download_path):
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+    with open(download_path, "wb") as file:
+        shutil.copyfileobj(response.raw, file)
+
+
 @app.command()
 def my_upgrade():
-    typer.echo("Upgrading devt...")
-    subprocess.run(
-        'pwsh -Command "iwr -useb https://raw.githubusercontent.com/dkuwcreator/devt/main/install.ps1 | iex"',
-        check=True,
-        shell=True,
-    )
+    import sys
+
+    current_version = __version__
+    typer.echo("Checking for updates...")
+    latest_version = check_for_update(current_version)
+
+    if latest_version:
+        typer.echo(f"New version available: {latest_version}. Downloading...")
+        download_url = f"https://github.com/dkuwcreator/devt/releases/download/{latest_version}/devt.exe"
+        temp_folder = Path(os.getenv('TEMP', '/tmp'))
+        download_path = temp_folder / f"devt_{latest_version}.exe"
+        download_latest_version(download_url, download_path)
+
+        # Replace the current version with the new one
+        current_executable = sys.executable
+        os.replace(download_path, current_executable)
+        typer.echo("Upgrade complete!")
+    else:
+        typer.echo("You are already using the latest version.")
 
 
 # ------------------------------------------------------------------------------
