@@ -926,32 +926,16 @@ def do(
     except ValueError as ve:
         raise typer.Exit(str(ve))
 
+
+    
     # Resolve the script command.
     cmd = resolve_script(tool, script_name, shell)
     typer.echo(f"Script: {cmd}")
 
     # If auto_sync is enabled, update the repository.
     if tool.get("auto_sync", False):
-
-        repo_name = tool.get("dir")
-        repo_dir = Path(registry_dir) / repo_name
-        logger.info("Auto-syncing repository for tool '%s'...", tool_name)
-        repo_dir, branch = clone_or_update_repo(
-            tool.get("source", ""), repo_dir, branch=tool.get("branch", None)
-        )
-        logger.info("Repository auto-synced successfully.")
-        tool_dirs = [manifest.parent for manifest in repo_dir.rglob("manifest.json")]
-        for tool_dir in tool_dirs:
-            registry = update_tool_in_registry(
-                tool_dir,
-                Path(registry_dir) / "registry.json",
-                load_json(Path(registry_dir) / "registry.json"),
-                tool.get("source", ""),
-                branch,
-                auto_sync=tool.get("auto_sync", False),
-            )
-        save_json(Path(registry_dir) / "registry.json", registry)
-        # Re-read the tool entry in case the manifest has changed.
+        registry_manager = RegistryManager(registry_dir / "registry.json")
+        _sync_one_repo(tool_name, workspace=(registry_dir==WORKSPACE_DIR), registry_manager=registry_manager, raise_on_missing=False)
         try:
             tool, registry_dir = get_tool(tool_name)
         except ValueError as ve:
