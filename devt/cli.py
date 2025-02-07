@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 import requests
 import typer
+from typing_extensions import Annotated
 
 # from typer_config.decorators import (
 #     use_yaml_config,  # other formats available
@@ -909,15 +910,14 @@ def init_project():
 def do(
     tool_name: str = typer.Argument(..., help="The tool to run the script for."),
     script_name: str = typer.Argument(..., help="The name of the script to run."),
-    additional_args: List[str] = typer.Argument(
-        None, help="Additional arguments to pass to the script."
-    ),
+    additional_args: Annotated[Optional[List[str]], typer.Argument(help="Additional arguments to pass to the script.")] = None,
 ):
     """
     Run a specified script for the given tool.
 
     The tool is looked up first in the workspace registry, then in the user registry.
     """
+
     shell = "posix" if os.name != "nt" else "windows"
 
     # Lookup the tool from the registries.
