@@ -21,7 +21,6 @@ rpds-py==0.22.3
 setuptools==75.8.0
 smmap==5.0.2
 toml==0.10.2
-typer==0.3.2
-typer-config==1.4.2
+typer==0.15.1
 typing_extensions==4.12.2
 urllib3==2.3.0
