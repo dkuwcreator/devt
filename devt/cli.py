@@ -935,7 +935,7 @@ def do(
     # If auto_sync is enabled, update the repository.
     if tool.get("auto_sync", False):
         registry_manager = RegistryManager(registry_dir / "registry.json")
-        _sync_one_repo(tool_name, workspace=(registry_dir==WORKSPACE_DIR), registry_manager=registry_manager, raise_on_missing=False)
+        _sync_one_repo(tool.get("dir", ""), workspace=(registry_dir==WORKSPACE_DIR), registry_manager=registry_manager, raise_on_missing=False)
         try:
             tool, registry_dir = get_tool(tool_name)
         except ValueError as ve:
