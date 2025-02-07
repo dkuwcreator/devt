@@ -57,6 +57,12 @@ def resolve_script(tool: dict, script_name: str, shell: str) -> str:
     if not cmd:
         available = ", ".join(scripts.keys())
         shell_specific = ", ".join(scripts.get(shell, {}).keys())
+        logger.error(
+            "Script '%s' not found for tool '%s'. Available scripts: %s. Shell-specific scripts: %s. "
+            "Try running 'devt list %s' to see available scripts.",
+            script_name, tool.get('manifest', {}).get('name', tool.get('command', 'unknown')),
+            available, shell_specific, tool.get('command')
+        )
         raise ValueError(
             f"Script '{script_name}' not found for tool '{tool.get('manifest', {}).get('name', tool.get('command', 'unknown'))}'. "
             f"Available scripts: {available}. Shell-specific scripts: {shell_specific}. "

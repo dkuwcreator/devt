@@ -4,7 +4,8 @@ import logging
 from pathlib import Path
 from urllib.parse import urlparse
 
-logger = logging.getLogger("devt")
+logger = logging.getLogger(__name__)
+
 
 def load_json(file_path: Path) -> dict:
     try:
@@ -16,10 +17,12 @@ def load_json(file_path: Path) -> dict:
         logger.error(f"Error decoding JSON in {file_path}: {e}")
         return {}
 
+
 def save_json(file_path: Path, data: dict):
     file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, "w") as file:
         json.dump(data, file, indent=4)
+
 
 def determine_source(source: str) -> str:
     parsed_url = urlparse(source)
@@ -31,8 +34,10 @@ def determine_source(source: str) -> str:
         return "local"
     raise FileNotFoundError(f"Error: The source path '{source}' does not exist.")
 
+
 def on_exc(func, path, exc):
     import os
+
     if isinstance(exc, PermissionError):
         os.chmod(path, 0o777)  # Grant write permissions
         func(path)  # Retry the operation

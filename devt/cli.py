@@ -1,6 +1,7 @@
 # devt/cli.py
 import json
 import logging
+import re
 import shutil
 import os
 from pathlib import Path
@@ -28,8 +29,9 @@ from devt.config import (
     WORKSPACE_DIR,
 )
 from devt.utils import load_json, on_exc, save_json, determine_source
-from devt.git_ops import clone_or_update_repo, update_repo
-from devt.registry import update_tool_in_registry
+from devt.git_ops import ToolRepo, clone_or_update_repo, update_repo
+from devt.registry import RegistryManager, update_tool_in_registry
+
 from devt.package_ops import add_local, delete_local_package, sync_repositories
 from devt.executor import (
     get_tool,
@@ -89,6 +91,19 @@ def update_registry_with_tools(
     save_json(registry_file, registry)
 
 
+def guess_repo_name_from_url(url: str) -> str:
+    """
+    Attempt to guess a repository name from the remote URL.
+    Example: https://github.com/user/devt-tools.git -> devt-tools
+    """
+    last_part = url.strip().split("/")[-1]
+    # remove .git if present
+    name = re.sub(r"\.git$", "", last_part)
+    if not name:
+        name = "default_repo"
+    return name
+
+
 @app.command("add")
 def add_repo(
     source: str,
@@ -98,6 +113,9 @@ def add_repo(
     auto_sync: bool = typer.Option(
         True, help="Automatically sync repositories after adding."
     ),
+    name_override: Optional[str] = typer.Option(
+        None, "--name", help="Override the inferred repository name."
+    ),
 ):
     """
     Add tools from a repository to the registry.
@@ -106,38 +124,35 @@ def add_repo(
         devt repo add https://github.com/dkuwcreator/devt-tools.git --branch main --workspace
     """
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
+
     registry_file = app_dir / "registry.json"
     typer.echo(f"Adding repository tools to registry from {registry_file}...")
-    registry = load_json(registry_file)
+    registry_manager = RegistryManager(registry_file)
+    # Derive a name for the repo if not explicitly provided
+    repo_name = name_override or guess_repo_name_from_url(source)
+    repo_dir = app_dir / "repos" / repo_name
+
+    typer.echo(f"[devt] Using registry file: {registry_file}")
+
+    if dry_run:
+        typer.echo(f"[dry-run] Would clone or update repo '{source}' into '{repo_dir}'")
+        raise typer.Exit()
+
+    # Create a ToolRepo object for this repository
+    tool_repo = ToolRepo(
+        name=repo_name,
+        base_path=repo_dir,
+        registry_manager=registry_manager,
+        remote_url=source,
+        branch=branch,
+        auto_sync=auto_sync,
+    )
+
     try:
-        if dry_run:
-            typer.echo(f"Dry run: would clone or update repository {source}")
-            raise typer.Exit()
-        repo_dir, branch = clone_or_update_repo(source, app_dir, branch)
-        # Find each manifest.json and use its parent directory as a tool folder.
-        tool_dirs = [manifest.parent for manifest in repo_dir.rglob("manifest.json")]
-        if not tool_dirs:
-            logger.warning("No tools found in repository: %s", source)
-            if repo_dir.exists():
-                try:
-                    shutil.rmtree(repo_dir, onexc=on_exc)
-                    typer.echo(
-                        f"Repository '{repo_dir.stem}' removed successfully from disk."
-                    )
-                except Exception as e:
-                    logger.error(
-                        "Failed to remove repository '%s': %s", repo_dir.stem, e
-                    )
-                    raise
-                return
-            else:
-                logger.warning("Repository directory not found: %s", repo_dir)
-        update_registry_with_tools(
-            tool_dirs, registry_file, registry, source, branch, auto_sync
-        )
-        typer.echo("Repository tools successfully added to the registry.")
+        tool_repo.add_repo()
     except Exception as e:
         logger.exception("An error occurred while adding repository tools: %s", e)
+        raise typer.Exit(code=1)
 
 
 @app.command("remove")
@@ -157,20 +172,13 @@ def remove_repo(
     """
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
     registry_file = app_dir / "registry.json"
-    registry = load_json(registry_file)
+    registry_manager = RegistryManager(registry_file)
 
-    # Identify entries that are from a repository and belong to the group.
-    repo_entries = {
-        tool: data
-        for tool, data in registry.items()
-        if data is not None
-        and isinstance(data, dict)
-        and data.get("location", "").startswith("repos")
-        and data.get("dir") == repo_name
-    }
-    if not repo_entries:
-        logger.error("Repository '%s' not found in registry.", repo_name)
-        raise typer.Exit()
+    repo_dir = app_dir / "repos" / repo_name
+
+    if not repo_dir.exists():
+        logger.error("[devt] Repository directory '%s' not found.", repo_dir)
+        raise typer.Exit(code=1)
 
     # Confirm removal if not forced.
     if not force:
@@ -181,95 +189,146 @@ def remove_repo(
             raise typer.Exit()
 
     if dry_run:
-        typer.echo(f"Dry run: would remove repository '{repo_name}' and its tools.")
+        typer.echo(f"[dry-run] Would remove repository '{repo_name}' at '{repo_dir}'")
         raise typer.Exit()
 
-    # Remove each tool from the registry.
-    for tool in list(repo_entries.keys()):
-        del registry[tool]
-    save_json(registry_file, registry)
-
-    # Remove the repository directory.
-    repo_dir = app_dir / "repos" / repo_name
-    if repo_dir.exists():
-        try:
-            shutil.rmtree(repo_dir, onexc=on_exc)
-            typer.echo(f"Repository '{repo_name}' removed successfully from disk.")
-        except Exception as e:
-            logger.error("Failed to remove repository '%s': %s", repo_name, e)
-            raise
-    else:
-        logger.warning("Repository directory not found: %s", repo_dir)
-
-    typer.echo(
-        f"Repository '{repo_name}' and its associated tools have been removed from the registry."
+    # Create a ToolRepo just so we can call remove_collection()
+    tool_repo = ToolRepo(
+        name=repo_name,
+        base_path=repo_dir,
+        registry_manager=registry_manager,
+        remote_url="",
     )
+
+    try:
+        tool_repo.remove_repo(force=force)
+        typer.echo(f"[devt] Repository '{repo_name}' and its associated tools removed.")
+    except Exception as e:
+        logger.error("[devt] Failed to remove repository '%s': %s", repo_name, e)
+        raise typer.Exit(code=1)
+
+
+def _sync_one_repo(
+    repo_name: str,
+    workspace: bool,
+    registry_manager: RegistryManager,
+    raise_on_missing: bool = True,
+) -> None:
+    """
+    Perform the actual sync logic for a single repo.
+    If `raise_on_missing` is True, raise typer.Exit if the repo directory is missing.
+    If False, just log a warning and return.
+    """
+    app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
+    repos_dir = app_dir / "repos"
+    single_repo_dir = repos_dir / repo_name
+
+    if not single_repo_dir.exists():
+        msg = f"[devt] Requested repo '{repo_name}' not found at {single_repo_dir}"
+        if raise_on_missing:
+            logger.error(msg)
+            raise typer.Exit(code=1)
+        else:
+            logger.warning(msg)
+            return
+
+    logger.info(f"[devt] Syncing repository: {repo_name}")
+
+    # Look up registry data
+    matching_entry = None
+    for tool_key, data in registry_manager.registry.items():
+        if data.get("dir") == repo_name:
+            matching_entry = data
+            break
+
+    remote_url = matching_entry["source"] if matching_entry else ""
+    branch = matching_entry.get("branch") if matching_entry else None
+    auto_sync = matching_entry.get("auto_sync") if matching_entry else True
+
+    # Sync the single repo
+    tool_repo = ToolRepo(
+        name=repo_name,
+        base_path=single_repo_dir,
+        registry_manager=registry_manager,
+        remote_url=remote_url,
+        branch=branch,
+        auto_sync=auto_sync,
+    )
+    try:
+        tool_repo.update_repo()
+        typer.echo(f"Repository '{repo_name}' sync completed.")
+    except Exception as e:
+        logger.error(f"[devt] Failed to sync repository {repo_name}: {e}")
 
 
 @app.command("sync")
-def sync_repos(
+def sync_repo(
+    repo_name: str = typer.Argument(..., help="Name of the repository to sync."),
     workspace: bool = typer.Option(
-        False, help="Sync repositories from workspace registry."
-    )
+        False,
+        help="Sync a repository from the workspace registry instead of user-level.",
+    ),
 ):
     """
-    Sync all repositories by pulling the latest changes.
+    Sync a single repository by pulling the latest changes.
 
     Example:
-        devt repo sync --workspace
+        devt sync devt-tools
+        devt sync devt-tools --workspace
     """
-    logger.info("Starting repository sync...")
-
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
-    repos_dir = app_dir / "repos"
     registry_file = app_dir / "registry.json"
-    registry = load_json(registry_file)
+    registry_manager = RegistryManager(registry_file)
 
+    _sync_one_repo(repo_name, workspace, registry_manager, raise_on_missing=True)
+
+
+@app.command("sync-all")
+def sync_all(
+    workspace: bool = typer.Option(
+        False, help="Sync all repositories from workspace registry."
+    ),
+):
+    """
+    Sync ALL repositories by pulling the latest changes.
+
+    Example:
+        devt sync-all
+        devt sync-all --workspace
+    """
+    app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
+    registry_file = app_dir / "registry.json"
+    registry_manager = RegistryManager(registry_file)
+
+    repos_dir = app_dir / "repos"
     if not repos_dir.exists():
-        logger.warning(f"Repositories directory not found: {repos_dir}")
+        logger.warning(f"[devt] Repositories directory not found: {repos_dir}")
         return
 
-    for repo in repos_dir.iterdir():
-        if not repo.is_dir() or repo.name == ".git":
+    logger.info("[devt] Starting repository sync of ALL repos...")
+
+    repo_paths = [p for p in repos_dir.iterdir() if p.is_dir()]
+
+    if not repo_paths:
+        logger.warning(f"[devt] No repositories found in directory: {repos_dir}")
+        return
+
+    for repo_path in repo_paths:
+        if not repo_path.is_dir() or repo_path.name.startswith(".git"):
             continue
 
-        logger.info(f"Syncing repository: {repo.name}")
+        current_repo_name = repo_path.name
 
-        try:
-            # Retrieve associated tools from the registry
-            tools = [tool for tool in registry.values() if tool.get("dir") == repo.name]
+        # Reuse the same sync logic. But here we use `raise_on_missing=False`
+        # so that if one repo is missing or fails, we don't exit the entire loop.
+        _sync_one_repo(
+            repo_name=current_repo_name,
+            workspace=workspace,
+            registry_manager=registry_manager,
+            raise_on_missing=False,
+        )
 
-            # Pull latest changes for the repository
-            repo_dir = update_repo(repo, None)
-
-            # Find tool directories in the repo
-            tool_dirs = [
-                manifest.parent for manifest in repo_dir.rglob("manifest.json")
-            ]
-
-            for tool_dir in tool_dirs:
-                logger.info(f"Updating registry for tool directory: {tool_dir}")
-
-                if tools:
-                    registry = update_tool_in_registry(
-                        tool_dir,
-                        registry_file,
-                        registry,
-                        tools[0].get("source", ""),
-                        tools[0].get("branch", None),
-                        tools[0].get("auto_sync", True),
-                    )
-                else:
-                    logger.warning(
-                        f"No tools found in registry for repository: {repo.name}"
-                    )
-
-            save_json(registry_file, registry)
-
-        except Exception as e:
-            logger.error(f"Failed to sync repository {repo.name}: {e}")
-
-    logger.info("Repository sync completed.")
+    logger.info("[devt] Repository sync completed.")
 
 
 # ---------------------------------------------------------------------------
@@ -714,6 +773,7 @@ def list_tools(
                     "name": manifest.get("name", registry_key),
                     "description": manifest.get("description", ""),
                     "command": manifest.get("command", ""),
+                    "dir": info.get("dir", ""),
                     "active": info.get("active", True),
                     "source": info.get("source", ""),
                     "added": info.get("added", ""),
@@ -735,15 +795,16 @@ def list_tools(
         typer.echo("No tools found.")
         return
 
-    header = f"{'Name':<18} {'Command':<10} {'Active':<7} {'Source':<40} {'Added'}"
+    header = f"{'Name':<20} {'Command':<15} {'Active':<7} {'Dir':<20} {'Source':<40} {'Added'}"
     typer.echo(header)
     typer.echo("-" * len(header))
 
     for tool in found_tools:
         typer.echo(
-            f"{tool['name'][:17]:<18} "
-            f"{tool['command'][:9]:<10} "
+            f"{tool['name'][:19]:<20} "
+            f"{tool['command'][:14]:<15} "
             f"{'Yes' if tool['active'] else 'No':<7} "
+            f"{tool['dir'][:19]:<20} "
             f"{tool['source'][:39]:<40} "
             f"{tool['added'].split('.')[0]}"
         )
