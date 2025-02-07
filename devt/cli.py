@@ -910,7 +910,7 @@ def init_project():
 def do(
     tool_name: str = typer.Argument(..., help="The tool to run the script for."),
     script_name: str = typer.Argument(..., help="The name of the script to run."),
-    additional_args: Annotated[Optional[List[str]], typer.Argument(help="Additional arguments to pass to the script.")] = None,
+    additional_args: Annotated[Optional[List[str]], typer.Argument()] = None,
 ):
     """
     Run a specified script for the given tool.
