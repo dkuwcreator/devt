@@ -152,7 +152,7 @@ class BaseToolCollection(ABC):
             "manifest": manifest_data,
             "location": self._relative_location(manifest_path),
             "added": datetime.now(timezone.utc).isoformat(),
-            "source": source,
+            "source": str(source),
             "dir": self.name,
             "active": True,
             "branch": branch,
@@ -196,18 +196,29 @@ class ToolGroup(BaseToolCollection):
     A purely local group of tools. Typically located at: app_dir / 'tools' / <group_name>.
     """
 
+    def __init__(
+            self,
+            name: str,
+            base_path: Path,
+            registry_manager: RegistryManager,
+            source: str
+    ):
+        super().__init__(name, base_path, registry_manager)
+        self.source = source
+
     def setup_collection(self) -> bool:
-        if not self.base_path.exists():
             logger.info(
                 "Creating local tool group '%s' at %s", self.name, self.base_path
             )
             self.base_path.mkdir(parents=True, exist_ok=True)
-            return True
-        else:
-            logger.debug(
-                "Tool group '%s' already exists at %s.", self.name, self.base_path
-            )
-            return False
+            try:
+                # copy the source directory to the base_path
+                # dest_path = self.base_path / source_path.name
+                shutil.copytree(self.source, self.base_path, dirs_exist_ok=True)
+                return True
+            except Exception as e:
+                logger.error("Failed to create local group '%s': %s", self.name, e)
+                raise
 
     def sync_collection(self) -> None:
         """
@@ -221,21 +232,14 @@ class ToolGroup(BaseToolCollection):
                 "Confirm removal of local group '%s' at %s", self.name, self.base_path
             )
             # CLI prompt or other logic could go here.
-
-        if not self.base_path.exists():
-            logger.warning("Group directory %s not found.", self.base_path)
-            return False
-
-        logger.info(
-            "Removing local tool group '%s' at %s...", self.name, self.base_path
-        )
         try:
             shutil.rmtree(self.base_path)
-            logger.info("Successfully removed group '%s'.", self.name)
+            logger.info("Local group '%s' removed successfully.", self.name)
             return True
         except Exception as e:
-            logger.error("Failed to remove group '%s': %s", self.name, e)
-            raise
+            logger.error("Failed to remove local group '%s': %s", self.name, e)
+            return False
+        
 
     def add_group(self) -> None:
         """
@@ -247,6 +251,12 @@ class ToolGroup(BaseToolCollection):
             if is_added:
                 self.registry_manager.save_registry()
 
+    def update_group(self) -> None:
+        """
+        For local groups, there's no real update operation. So do nothing or implement custom logic.
+        """
+        logger.info("No update operation for local group '%s'.", self.name)
+
     def remove_group(self, force: bool = False) -> None:
         """
         Remove the local group and associated tools from the registry.
@@ -256,136 +266,21 @@ class ToolGroup(BaseToolCollection):
             self._remove_associated_tools()
             self.registry_manager.save_registry()
 
+    def remove_package(self, package: str) -> None:
+        """
+        Remove a specific package from the local group and registry.
+        """
+        tool_dir = self.base_path / package
+        if not tool_dir.exists():
+            logger.warning("Tool directory %s not found.", tool_dir)
+            return
 
-def add_local(local_path: str, base_dir: Path) -> Path:
-    """
-    Add a local tool to the specified base directory.
-    (A simple copy operation; grouping is handled by the CLI.)
-    """
-    source_path = Path(local_path).resolve()
-    if not source_path.exists():
-        raise FileNotFoundError(f"Path '{local_path}' does not exist.")
-
-    # Default destination: simply copy the source folder into base_dir/tools using its name.
-    destination = base_dir / "tools" / source_path.name
-    try:
-        shutil.copytree(source_path, destination, dirs_exist_ok=True)
-    except Exception as e:
-        logger.error(
-            "Failed to copy local path %s to %s: %s", source_path, destination, e
-        )
-        raise
-
-    return destination
-
-
-def import_local_package(local_path: str, base_dir: Path) -> Path:
-    """
-    Import a local tool package into the registry.
-    (This function simply copies the package from local_path to the
-     destination under base_dir/tools. Grouping is handled by the CLI.)
-    """
-    source_path = Path(local_path).resolve()
-    if not source_path.exists():
-        raise FileNotFoundError(f"Path '{local_path}' does not exist.")
-
-    destination = base_dir / "tools" / source_path.name
-    try:
-        shutil.copytree(source_path, destination, dirs_exist_ok=True)
-        logger.info("Local package imported successfully: %s", source_path.name)
-    except Exception as e:
-        logger.error("Failed to copy local package %s: %s", source_path, e)
-        raise
-
-    return destination
-
-
-def export_local_package(package_name: str, destination_path: str, base_dir: Path):
-    """
-    Export a local tool package from the registry.
-    This function assumes that the package is stored under base_dir/tools.
-    """
-    tool_dir = base_dir / "tools" / package_name
-    destination = Path(destination_path).resolve()
-
-    if not tool_dir.exists():
-        raise FileNotFoundError(f"Tool package '{package_name}' does not exist.")
-
-    try:
-        shutil.copytree(tool_dir, destination, dirs_exist_ok=True)
-        logger.info("Local package exported successfully to %s", destination)
-    except Exception as e:
-        logger.error("Failed to export local package %s: %s", package_name, e)
-        raise
-
-
-def delete_local_package(
-    tool_key: str, base_dir: Path, registry: dict, registry_file: Path
-):
-    """
-    Delete a local tool package from the registry.
-
-    Instead of assuming the package folder is simply base_dir / "tools" / tool_key,
-    we use the registry entry's "location" field. For example, if the registry entry's
-    "location" is "tools\\test_tools\\test\\manifest.json", we delete its parent folder.
-    """
-    entry = registry.get(tool_key)
-    if not entry:
-        logger.error("No registry entry found for tool '%s'.", tool_key)
-        return
-
-    location = entry.get("location", "")
-    if not location.startswith("tools"):
-        logger.error(
-            "Registry entry for tool '%s' does not appear to be a local package.",
-            tool_key,
-        )
-        return
-
-    # Construct the absolute path to the manifest file; if location is relative, use base_dir.
-    tool_manifest_path = Path(location)
-    if not tool_manifest_path.is_absolute():
-        tool_manifest_path = base_dir / tool_manifest_path
-    # The package folder is assumed to be the parent directory of manifest.json.
-    tool_dir = tool_manifest_path.parent
-
-    if tool_dir.exists():
+        logger.info("Removing tool '%s' from local group '%s'...", package, self.name)
         try:
             shutil.rmtree(tool_dir)
-            logger.info("Tool package '%s' removed successfully.", tool_key)
-            # Remove the entry from the registry and update the JSON file.
-            registry.pop(tool_key, None)
-            save_json(registry_file, registry)
+            self.registry_manager.remove_tool_from_registry(package)
+            self.registry_manager.save_registry()
+            logger.info("Successfully removed tool '%s'.", package)
         except Exception as e:
-            logger.error("Failed to remove tool package '%s': %s", tool_key, e)
+            logger.error("Failed to remove tool '%s': %s", package, e)
             raise
-    else:
-        logger.warning("Tool package directory not found: %s", tool_dir)
-
-
-def remove_repository(
-    repo_name: str, base_dir: Path, registry: dict, registry_file: Path
-):
-    """
-    Remove a repository from the registry.
-
-    This function deletes the local repository directory and then filters
-    the registry to remove any tools whose "dir" field matches repo_name.
-    """
-    repo_dir = base_dir / "repos" / repo_name
-    if repo_dir.exists():
-        try:
-            shutil.rmtree(repo_dir, onexc=on_exc)
-            logger.info("Repository '%s' removed successfully.", repo_name)
-            # Filter registry entries not belonging to the repository.
-            new_registry = {
-                key: value
-                for key, value in registry.items()
-                if value.get("dir") != repo_name
-            }
-            save_json(registry_file, new_registry)
-        except Exception as e:
-            logger.error("Failed to remove repository '%s': %s", repo_name, e)
-            raise
-    else:
-        logger.warning("Repository directory not found: %s", repo_dir)

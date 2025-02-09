@@ -104,9 +104,9 @@ class Executor:
 
         if shell_type == "pwsh":
             if shutil.which("pwsh"):
-                shell_cmd = ["pwsh", "-NoExit", "-Command", f"& {command}"]
+                shell_cmd = ["pwsh", "-Command", f"& {command}"]
             else:
-                shell_cmd = ["powershell", "-NoExit", "-Command", f"& {command}"]
+                shell_cmd = ["powershell", "-Command", f"& {command}"]
         elif shell_type == "bash":
             shell_cmd = ["bash", "-c", command]
 

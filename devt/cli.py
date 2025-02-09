@@ -24,7 +24,7 @@ from devt.utils import load_json, save_json
 from devt.git_manager import ToolRepo
 from devt.registry import RegistryManager, get_tool, update_tool_in_registry
 
-from devt.package_manager import delete_local_package
+from devt.package_manager import ToolGroup
 from devt.executor import Executor
 
 app = typer.Typer(help="DevT: A tool for managing development tool packages.")
@@ -34,6 +34,11 @@ app = typer.Typer(help="DevT: A tool for managing development tool packages.")
 @app.callback()
 def main(
     ctx: typer.Context,
+    scope: str = typer.Option(
+        "user",
+        help="Scope of the command: user (default) or workspace.",
+        show_default=False,
+    ),
     log_level: str = typer.Option(
         "WARNING",
         help="Global log level (DEBUG, INFO, WARNING, ERROR). "
@@ -343,19 +348,21 @@ def import_package(
     """
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
     registry_file = app_dir / "registry.json"
-    registry = load_json(registry_file)
+    registry_manager = RegistryManager(registry_file)
 
     local_path_obj = Path(local_path).resolve()
     if not local_path_obj.exists():
         logger.error("Path '%s' does not exist.", local_path)
         raise typer.Exit()
 
+
     # Base destination for local packages.
     dest_base = app_dir / "tools"
 
-    if local_path_obj.is_file():
+    if local_path_obj.is_file() or  (local_path_obj / "manifest.json").is_file():
         # Assume it's a manifest file: use its parent as the package.
-        pkg_folder = local_path_obj.parent
+        pkg_folder = local_path_obj.parent if local_path_obj.is_file() else local_path_obj
+        print(pkg_folder)
         group_name = group if group else "default"
         dest = dest_base / group_name / pkg_folder.name
         if dry_run:
@@ -363,79 +370,41 @@ def import_package(
                 "Dry run: would import package from file '%s' to '%s'", local_path, dest
             )
             raise typer.Exit()
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(pkg_folder, dest, dirs_exist_ok=True)
-        if (dest / "manifest.json").exists():
-            tool_dirs = [dest]
-        else:
-            tool_dirs = [
-                d
-                for d in dest.iterdir()
-                if d.is_dir() and (d / "manifest.json").exists()
-            ]
+        tool_group = ToolGroup(
+            name=group_name,
+            base_path=dest,
+            registry_manager=registry_manager,
+            source=pkg_folder,
+        )
+        try:
+            tool_group.add_group()
+        except Exception as e:
+            logger.error("Failed to import package from file '%s': %s", local_path, e)
+            raise typer.Exit(code=1)
     elif local_path_obj.is_dir():
-        # Check if multiple subdirectories with manifest.json exist.
-        subpackages = [
-            d
-            for d in local_path_obj.iterdir()
-            if d.is_dir() and (d / "manifest.json").exists()
-        ]
-        if len(subpackages) > 1:
-            group_name = group if group else local_path_obj.name
-            tool_dirs = []
-            for subpkg in subpackages:
-                dest = dest_base / group_name / subpkg.name
-                if dry_run:
-                    logger.info(
-                        "Dry run: would import package '%s' to '%s'", subpkg, dest
-                    )
-                    continue
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(subpkg, dest, dirs_exist_ok=True)
-                tool_dirs.append(dest)
-        else:
-            if (local_path_obj / "manifest.json").exists():
-                group_name = group if group else "default"
-                dest = dest_base / group_name / local_path_obj.name
-            else:
-                subdirs = [
-                    d
-                    for d in local_path_obj.iterdir()
-                    if d.is_dir() and (d / "manifest.json").exists()
-                ]
-                if subdirs:
-                    group_name = group if group else "default"
-                    dest = dest_base / group_name / subdirs[0].name
-                else:
-                    logger.error(
-                        "No valid package (manifest.json) found in '%s'", local_path
-                    )
-                    raise typer.Exit()
-            if dry_run:
-                logger.info(
-                    "Dry run: would import package from directory '%s' to '%s'",
-                    local_path,
-                    dest,
-                )
-                raise typer.Exit()
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(local_path_obj, dest, dirs_exist_ok=True)
-            tool_dirs = [dest]
+        # Assume it's a folder with multiple packages.
+        group_name = group if group else local_path_obj.name
+        dest = dest_base / group_name
+        if dry_run:
+            logger.info(
+                "Dry run: would import package from folder '%s' to '%s'", local_path, dest
+            )
+            raise typer.Exit()
+        tool_group = ToolGroup(
+            name=group_name,
+            base_path=dest,
+            registry_manager=registry_manager,
+            source=local_path_obj,
+        )
+        try:
+            tool_group.add_group()
+        except Exception as e:
+            logger.error("Failed to import package from folder '%s': %s", local_path, e)
+            raise typer.Exit(code=1)
     else:
         logger.error("Path '%s' is neither a file nor a directory.", local_path)
         raise typer.Exit()
 
-    # Update the registry for each detected tool package.
-    for tool_dir in tool_dirs:
-        registry = update_tool_in_registry(
-            tool_dir,
-            registry_file,
-            registry,
-            str(local_path_obj),
-            auto_sync=False,  # Local packages are not auto-synced.
-        )
-
-    save_json(registry_file, registry)
     logger.info(
         "Local package(s) successfully imported into the registry under group '%s'.",
         group_name,
@@ -461,265 +430,243 @@ def delete_tool_or_group(
     """
     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
     registry_file = app_dir / "registry.json"
-    registry = load_json(registry_file)
+
+    registry_manager = RegistryManager(registry_file)
+    
 
     if group:
-        tools_in_group = {
-            tool: data
-            for tool, data in registry.items()
-            if data.get("location", "").startswith("tools") and data.get("dir") == name
-        }
-        if not tools_in_group:
-            logger.error("No local tools found in group '%s'.", name)
-            raise typer.Exit()
-        if not force and not typer.confirm(
-            f"Are you sure you want to delete all tools in group '{name}'?"
-        ):
-            typer.echo("Operation cancelled.")
-            raise typer.Exit()
-        if dry_run:
-            typer.echo(f"Dry run: would delete tools: {list(tools_in_group.keys())}")
-            raise typer.Exit()
-        for tool in list(tools_in_group.keys()):
-            delete_local_package(tool, app_dir, registry, registry_file)
-            logger.info("Deleted tool '%s' from registry.", tool)
-        group_dir = app_dir / "tools" / name
-        if group_dir.exists() and not any(group_dir.iterdir()):
-            shutil.rmtree(group_dir)
-            logger.info("Removed empty group directory '%s'.", group_dir)
-        save_json(registry_file, registry)
-        typer.echo(f"Deleted all local tools in group '{name}'.")
-    else:
-        if name not in registry:
-            logger.error("Local tool '%s' not found in registry.", name)
-            raise typer.Exit()
-        entry = registry[name]
-        if not entry.get("location", "").startswith("tools"):
-            logger.error("Tool '%s' is not a local package.", name)
-            raise typer.Exit()
-        if not force and not typer.confirm(
-            f"Are you sure you want to delete tool '{name}'?"
-        ):
-            typer.echo("Operation cancelled.")
-            raise typer.Exit()
-        if dry_run:
-            typer.echo(f"Dry run: would delete local tool '{name}'.")
-            raise typer.Exit()
-        delete_local_package(name, app_dir, registry, registry_file)
-        group_dir = app_dir / "tools" / entry.get("dir", "")
-        if group_dir.exists() and not any(group_dir.iterdir()):
-            shutil.rmtree(group_dir)
-            logger.info("Removed empty group directory '%s'.", group_dir)
-        save_json(registry_file, registry)
-        typer.echo(f"Deleted local tool '{name}'.")
-
-
-@app.command("export")
-def export_tool_or_group(
-    name: str = typer.Argument(
-        ..., help="Identifier of the local tool to export or group name."
-    ),
-    destination: str = typer.Argument(..., help="Destination directory for export."),
-    group: bool = typer.Option(
-        False,
-        "--group",
-        help="Treat 'name' as a group name to export all tools in that group.",
-    ),
-    workspace: bool = typer.Option(False, help="Operate on workspace-level registry."),
-    dry_run: bool = typer.Option(False, help="Preview actions without changes."),
-):
-    """
-    Export a local tool or a group of local tools to a specified destination.
-
-    If --group is provided, 'name' is treated as a group name and all tools in that group are exported.
-    Otherwise, 'name' is treated as a tool identifier.
-    """
-    app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
-    registry_file = app_dir / "registry.json"
-    registry = load_json(registry_file)
-    dest = Path(destination).resolve()
-
-    if group:
-        tools_in_group = {
-            tool: data
-            for tool, data in registry.items()
-            if data.get("location", "").startswith("tools") and data.get("dir") == name
-        }
-        if not tools_in_group:
-            logger.error("No local tools found in group '%s'.", name)
-            raise typer.Exit()
-        if dry_run:
-            typer.echo(
-                f"Dry run: would export tools in group '{name}': {list(tools_in_group.keys())} to {dest}"
-            )
-            raise typer.Exit()
-        dest_group = dest / name
-        dest_group.mkdir(parents=True, exist_ok=True)
-        for tool, data in tools_in_group.items():
-            tool_manifest = Path(data.get("location"))
-            if not tool_manifest.is_absolute():
-                tool_manifest = app_dir / tool_manifest
-            tool_folder = tool_manifest.parent
-            tool_dest = dest_group / tool_folder.name
-            shutil.copytree(tool_folder, tool_dest, dirs_exist_ok=True)
-            typer.echo(f"Exported tool '{tool}' to {tool_dest}")
-        typer.echo(f"Exported group '{name}' to {dest_group}")
-    else:
-        if name not in registry:
-            logger.error("Local tool '%s' not found in registry.", name)
-            raise typer.Exit()
-        data = registry[name]
-        if not data.get("location", "").startswith("tools"):
-            logger.error("Tool '%s' is not a local package.", name)
-            raise typer.Exit()
-        tool_manifest = Path(data.get("location"))
-        if not tool_manifest.is_absolute():
-            tool_manifest = app_dir / tool_manifest
-        tool_folder = tool_manifest.parent
-        tool_dest = dest / tool_folder.name
-        if dry_run:
-            typer.echo(f"Dry run: would export tool '{name}' to {tool_dest}")
-            raise typer.Exit()
-        shutil.copytree(tool_folder, tool_dest, dirs_exist_ok=True)
-        typer.echo(f"Exported tool '{name}' to {tool_dest}")
-
-
-@app.command("rename-group")
-def rename_group(
-    old_name: str = typer.Argument(..., help="Current group name."),
-    new_name: str = typer.Argument(..., help="New group name."),
-    workspace: bool = typer.Option(False, help="Operate on workspace-level registry."),
-    force: bool = typer.Option(False, help="Force rename without confirmation."),
-    dry_run: bool = typer.Option(False, help="Preview actions without changes."),
-):
-    """
-    Rename a group of local tools.
-
-    Updates both the registry entries and physically renames the group folder under base_dir/tools.
-    """
-    app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
-    registry_file = app_dir / "registry.json"
-    registry = load_json(registry_file)
-
-    tools_in_group = {
-        tool: data
-        for tool, data in registry.items()
-        if data.get("location", "").startswith("tools") and data.get("dir") == old_name
-    }
-    if not tools_in_group:
-        logger.error("No local tools found in group '%s'.", old_name)
-        raise typer.Exit()
-
-    if not force and not typer.confirm(
-        f"Are you sure you want to rename group '{old_name}' to '{new_name}'?"
-    ):
-        typer.echo("Operation cancelled.")
-        raise typer.Exit()
-
-    if dry_run:
-        typer.echo(
-            f"Dry run: would rename group '{old_name}' to '{new_name}' for tools: {list(tools_in_group.keys())}"
+        tool_group = ToolGroup(
+            name=name,
+            base_path=app_dir / "tools" / name,
+            registry_manager=registry_manager,
+            source="",
         )
-        raise typer.Exit()
-
-    old_group_dir = app_dir / "tools" / old_name
-    new_group_dir = app_dir / "tools" / new_name
-    if old_group_dir.exists():
         try:
-            old_group_dir.rename(new_group_dir)
-            typer.echo(f"Renamed folder '{old_group_dir}' to '{new_group_dir}'")
+            tool_group.remove_group(force=force)
         except Exception as e:
-            logger.error(
-                "Failed to rename group folder '%s' to '%s': %s",
-                old_group_dir,
-                new_group_dir,
-                e,
-            )
-            raise
+            logger.error("Failed to remove local group '%s': %s", name, e)
+            raise typer.Exit(code=1)
     else:
-        logger.error("Group directory '%s' not found.", old_group_dir)
-        raise typer.Exit()
-
-    for tool, data in tools_in_group.items():
-        data["dir"] = new_name
-        old_location_prefix = f"tools/{old_name}"
-        new_location_prefix = f"tools/{new_name}"
-        if data.get("location", "").startswith(old_location_prefix):
-            data["location"] = data["location"].replace(
-                old_location_prefix, new_location_prefix, 1
-            )
-    save_json(registry_file, registry)
-    typer.echo(f"Group renamed from '{old_name}' to '{new_name}' in registry.")
-
-
-@app.command("move")
-def move_tool(
-    tool_name: str = typer.Argument(..., help="Identifier of the local tool to move."),
-    new_group: str = typer.Argument(
-        ..., help="New group name where the tool will be moved."
-    ),
-    workspace: bool = typer.Option(False, help="Operate on workspace-level registry."),
-    force: bool = typer.Option(False, help="Force move without confirmation."),
-    dry_run: bool = typer.Option(False, help="Preview actions without changes."),
-):
-    """
-    Move a local tool from its current group to a new group.
-
-    Updates the registry entry's group ("dir" field) and physically moves the tool folder.
-    """
-    app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
-    registry_file = app_dir / "registry.json"
-    registry = load_json(registry_file)
-
-    if tool_name not in registry:
-        logger.error("Local tool '%s' not found in registry.", tool_name)
-        raise typer.Exit()
-
-    data = registry[tool_name]
-    if not data.get("location", "").startswith("tools"):
-        logger.error("Tool '%s' is not a local package.", tool_name)
-        raise typer.Exit()
-
-    current_group = data.get("dir")
-    if current_group == new_group:
-        typer.echo(f"Tool '{tool_name}' is already in group '{new_group}'.")
-        raise typer.Exit()
-
-    tool_manifest = Path(data.get("location"))
-    if not tool_manifest.is_absolute():
-        tool_manifest = app_dir / tool_manifest
-    tool_folder = tool_manifest.parent
-    new_tool_folder = app_dir / "tools" / new_group / tool_folder.name
-
-    if not force and not typer.confirm(
-        f"Move tool '{tool_name}' from group '{current_group}' to '{new_group}'?"
-    ):
-        typer.echo("Operation cancelled.")
-        raise typer.Exit()
-
-    if dry_run:
-        typer.echo(
-            f"Dry run: would move tool '{tool_name}' from '{tool_folder}' to '{new_tool_folder}'"
+        tool, registry_dir = get_tool(name)
+        tool_group = ToolGroup(
+            name=name,
+            base_path=app_dir / "tools" / tool.get("dir"),
+            registry_manager=registry_manager,
+            source="",
         )
-        raise typer.Exit()
+        try:
+            tool_group.remove_package(name)
+        except Exception as e:
+            logger.error("Failed to remove local tool '%s': %s", name, e)
+            raise typer.Exit(code=1)
 
-    new_group_dir = app_dir / "tools" / new_group
-    new_group_dir.mkdir(parents=True, exist_ok=True)
 
-    try:
-        shutil.move(str(tool_folder), str(new_tool_folder))
-        data["dir"] = new_group
-        old_location_prefix = f"tools/{current_group}"
-        new_location_prefix = f"tools/{new_group}"
-        if data.get("location", "").startswith(old_location_prefix):
-            data["location"] = data["location"].replace(
-                old_location_prefix, new_location_prefix, 1
-            )
-        save_json(registry_file, registry)
-        typer.echo(f"Tool '{tool_name}' moved to group '{new_group}'.")
-    except Exception as e:
-        logger.error("Failed to move tool '%s': %s", tool_name, e)
-        raise
+# @app.command("export")
+# def export_tool_or_group(
+#     name: str = typer.Argument(
+#         ..., help="Identifier of the local tool to export or group name."
+#     ),
+#     destination: str = typer.Argument(..., help="Destination directory for export."),
+#     group: bool = typer.Option(
+#         False,
+#         "--group",
+#         help="Treat 'name' as a group name to export all tools in that group.",
+#     ),
+#     workspace: bool = typer.Option(False, help="Operate on workspace-level registry."),
+#     dry_run: bool = typer.Option(False, help="Preview actions without changes."),
+# ):
+#     """
+#     Export a local tool or a group of local tools to a specified destination.
+
+#     If --group is provided, 'name' is treated as a group name and all tools in that group are exported.
+#     Otherwise, 'name' is treated as a tool identifier.
+#     """
+#     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
+#     registry_file = app_dir / "registry.json"
+#     registry = load_json(registry_file)
+#     dest = Path(destination).resolve()
+
+#     if group:
+#         tools_in_group = {
+#             tool: data
+#             for tool, data in registry.items()
+#             if data.get("location", "").startswith("tools") and data.get("dir") == name
+#         }
+#         if not tools_in_group:
+#             logger.error("No local tools found in group '%s'.", name)
+#             raise typer.Exit()
+#         if dry_run:
+#             typer.echo(
+#                 f"Dry run: would export tools in group '{name}': {list(tools_in_group.keys())} to {dest}"
+#             )
+#             raise typer.Exit()
+#         dest_group = dest / name
+#         dest_group.mkdir(parents=True, exist_ok=True)
+#         for tool, data in tools_in_group.items():
+#             tool_manifest = Path(data.get("location"))
+#             if not tool_manifest.is_absolute():
+#                 tool_manifest = app_dir / tool_manifest
+#             tool_folder = tool_manifest.parent
+#             tool_dest = dest_group / tool_folder.name
+#             shutil.copytree(tool_folder, tool_dest, dirs_exist_ok=True)
+#             typer.echo(f"Exported tool '{tool}' to {tool_dest}")
+#         typer.echo(f"Exported group '{name}' to {dest_group}")
+#     else:
+#         if name not in registry:
+#             logger.error("Local tool '%s' not found in registry.", name)
+#             raise typer.Exit()
+#         data = registry[name]
+#         if not data.get("location", "").startswith("tools"):
+#             logger.error("Tool '%s' is not a local package.", name)
+#             raise typer.Exit()
+#         tool_manifest = Path(data.get("location"))
+#         if not tool_manifest.is_absolute():
+#             tool_manifest = app_dir / tool_manifest
+#         tool_folder = tool_manifest.parent
+#         tool_dest = dest / tool_folder.name
+#         if dry_run:
+#             typer.echo(f"Dry run: would export tool '{name}' to {tool_dest}")
+#             raise typer.Exit()
+#         shutil.copytree(tool_folder, tool_dest, dirs_exist_ok=True)
+#         typer.echo(f"Exported tool '{name}' to {tool_dest}")
+
+
+# @app.command("rename-group")
+# def rename_group(
+#     old_name: str = typer.Argument(..., help="Current group name."),
+#     new_name: str = typer.Argument(..., help="New group name."),
+#     workspace: bool = typer.Option(False, help="Operate on workspace-level registry."),
+#     force: bool = typer.Option(False, help="Force rename without confirmation."),
+#     dry_run: bool = typer.Option(False, help="Preview actions without changes."),
+# ):
+#     """
+#     Rename a group of local tools.
+
+#     Updates both the registry entries and physically renames the group folder under base_dir/tools.
+#     """
+#     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
+#     registry_file = app_dir / "registry.json"
+#     registry = load_json(registry_file)
+
+#     tools_in_group = {
+#         tool: data
+#         for tool, data in registry.items()
+#         if data.get("location", "").startswith("tools") and data.get("dir") == old_name
+#     }
+#     if not tools_in_group:
+#         logger.error("No local tools found in group '%s'.", old_name)
+#         raise typer.Exit()
+
+#     if not force and not typer.confirm(
+#         f"Are you sure you want to rename group '{old_name}' to '{new_name}'?"
+#     ):
+#         typer.echo("Operation cancelled.")
+#         raise typer.Exit()
+
+#     if dry_run:
+#         typer.echo(
+#             f"Dry run: would rename group '{old_name}' to '{new_name}' for tools: {list(tools_in_group.keys())}"
+#         )
+#         raise typer.Exit()
+
+#     old_group_dir = app_dir / "tools" / old_name
+#     new_group_dir = app_dir / "tools" / new_name
+#     if old_group_dir.exists():
+#         try:
+#             old_group_dir.rename(new_group_dir)
+#             typer.echo(f"Renamed folder '{old_group_dir}' to '{new_group_dir}'")
+#         except Exception as e:
+#             logger.error(
+#                 "Failed to rename group folder '%s' to '%s': %s",
+#                 old_group_dir,
+#                 new_group_dir,
+#                 e,
+#             )
+#             raise
+#     else:
+#         logger.error("Group directory '%s' not found.", old_group_dir)
+#         raise typer.Exit()
+
+#     for tool, data in tools_in_group.items():
+#         data["dir"] = new_name
+#         old_location_prefix = f"tools/{old_name}"
+#         new_location_prefix = f"tools/{new_name}"
+#         if data.get("location", "").startswith(old_location_prefix):
+#             data["location"] = data["location"].replace(
+#                 old_location_prefix, new_location_prefix, 1
+#             )
+#     save_json(registry_file, registry)
+#     typer.echo(f"Group renamed from '{old_name}' to '{new_name}' in registry.")
+
+
+# @app.command("move")
+# def move_tool(
+#     tool_name: str = typer.Argument(..., help="Identifier of the local tool to move."),
+#     new_group: str = typer.Argument(
+#         ..., help="New group name where the tool will be moved."
+#     ),
+#     workspace: bool = typer.Option(False, help="Operate on workspace-level registry."),
+#     force: bool = typer.Option(False, help="Force move without confirmation."),
+#     dry_run: bool = typer.Option(False, help="Preview actions without changes."),
+# ):
+#     """
+#     Move a local tool from its current group to a new group.
+
+#     Updates the registry entry's group ("dir" field) and physically moves the tool folder.
+#     """
+#     app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
+#     registry_file = app_dir / "registry.json"
+#     registry = load_json(registry_file)
+
+#     if tool_name not in registry:
+#         logger.error("Local tool '%s' not found in registry.", tool_name)
+#         raise typer.Exit()
+
+#     data = registry[tool_name]
+#     if not data.get("location", "").startswith("tools"):
+#         logger.error("Tool '%s' is not a local package.", tool_name)
+#         raise typer.Exit()
+
+#     current_group = data.get("dir")
+#     if current_group == new_group:
+#         typer.echo(f"Tool '{tool_name}' is already in group '{new_group}'.")
+#         raise typer.Exit()
+
+#     tool_manifest = Path(data.get("location"))
+#     if not tool_manifest.is_absolute():
+#         tool_manifest = app_dir / tool_manifest
+#     tool_folder = tool_manifest.parent
+#     new_tool_folder = app_dir / "tools" / new_group / tool_folder.name
+
+#     if not force and not typer.confirm(
+#         f"Move tool '{tool_name}' from group '{current_group}' to '{new_group}'?"
+#     ):
+#         typer.echo("Operation cancelled.")
+#         raise typer.Exit()
+
+#     if dry_run:
+#         typer.echo(
+#             f"Dry run: would move tool '{tool_name}' from '{tool_folder}' to '{new_tool_folder}'"
+#         )
+#         raise typer.Exit()
+
+#     new_group_dir = app_dir / "tools" / new_group
+#     new_group_dir.mkdir(parents=True, exist_ok=True)
+
+#     try:
+#         shutil.move(str(tool_folder), str(new_tool_folder))
+#         data["dir"] = new_group
+#         old_location_prefix = f"tools/{current_group}"
+#         new_location_prefix = f"tools/{new_group}"
+#         if data.get("location", "").startswith(old_location_prefix):
+#             data["location"] = data["location"].replace(
+#                 old_location_prefix, new_location_prefix, 1
+#             )
+#         save_json(registry_file, registry)
+#         typer.echo(f"Tool '{tool_name}' moved to group '{new_group}'.")
+#     except Exception as e:
+#         logger.error("Failed to move tool '%s': %s", tool_name, e)
+#         raise
 
 
 # ---------------------------------------------------------------------------
