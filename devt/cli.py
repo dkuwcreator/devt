@@ -10,12 +10,6 @@ import requests
 import typer
 from typing_extensions import Annotated
 
-# from typer_config.decorators import (
-#     use_yaml_config,  # other formats available
-#     dump_yaml_config,
-# )
-
-
 from devt import __version__
 
 # Import functions and constants from our modules
@@ -26,29 +20,18 @@ from devt.config import (
     WORKSPACE_REGISTRY_DIR,
     REGISTRY_FILE,
     WORKSPACE_REGISTRY_FILE,
-    WORKSPACE_FILE,
-    WORKSPACE_DIR,
 )
-from devt.utils import load_json, on_exc, save_json, determine_source
-from devt.git_ops import ToolRepo, clone_or_update_repo, update_repo
-from devt.registry import RegistryManager, update_tool_in_registry
+from devt.utils import load_json, save_json
+from devt.git_ops import ToolRepo
+from devt.registry import RegistryManager, get_tool, update_tool_in_registry
 
-from devt.package_ops import add_local, delete_local_package, sync_repositories
-from devt.executor import (
-    get_tool,
-    resolve_script,
-    resolve_working_directory,
-    build_full_command,
-    execute_command,
-)
+from devt.package_ops import delete_local_package
+from devt.executor import Executor
 
 app = typer.Typer(help="DevT: A tool for managing development tool packages.")
 
 
 # Define a callback to set global log level or other config
-# @app.callback()
-# @use_yaml_config()  # before dump decorator
-# @dump_yaml_config(WORKSPACE_REGISTRY_DIR / "config.yml")  # after use decorator
 @app.callback()
 def main(
     ctx: typer.Context,
@@ -74,7 +57,7 @@ def main(
 
 
 # ---------------------------------------------------------------------------
-# Repository-based commands
+# Managing Repository commands
 # ---------------------------------------------------------------------------
 def update_registry_with_tools(
     tool_dirs, registry_file, registry, source, branch, auto_sync
@@ -333,7 +316,7 @@ def sync_all(
 
 
 # ---------------------------------------------------------------------------
-# Local package commands
+# Managing Local Package commands
 # ---------------------------------------------------------------------------
 @app.command("import")
 def import_package(
@@ -741,8 +724,7 @@ def move_tool(
 
 
 # ---------------------------------------------------------------------------
-# Other Commands (List, Do, Run, Install, Uninstall, Upgrade, Version, Test)
-# These commands remain in the main app.
+# Visualization Commands (List, Info)
 # ---------------------------------------------------------------------------
 @app.command("list")
 def list_tools(
@@ -882,6 +864,11 @@ def show_tool_info(
     typer.echo("─" * 60)
 
 
+# ---------------------------------------------------------------------------
+# Project Commands (Init)
+# ---------------------------------------------------------------------------
+
+
 @app.command("init")
 def init_project():
     """
@@ -906,6 +893,11 @@ def init_project():
     typer.echo("Initialized project with workspace.json.")
 
 
+# ---------------------------------------------------------------------------
+# Execute Commands (Do, Run, Install, Uninstall, Upgrade, Version, Test)
+# ---------------------------------------------------------------------------
+
+
 @app.command("do")
 def do(
     tool_name: str = typer.Argument(..., help="The tool to run the script for."),
@@ -918,7 +910,7 @@ def do(
     The tool is looked up first in the workspace registry, then in the user registry.
     """
 
-    shell = "posix" if os.name != "nt" else "windows"
+    # shell = "posix" if os.name != "nt" else "windows"
 
     # Lookup the tool from the registries.
     try:
@@ -926,32 +918,27 @@ def do(
     except ValueError as ve:
         raise typer.Exit(str(ve))
 
-
-    
-    # Resolve the script command.
-    cmd = resolve_script(tool, script_name, shell)
-    typer.echo(f"Script: {cmd}")
-
     # If auto_sync is enabled, update the repository.
     if tool.get("auto_sync", False):
         registry_manager = RegistryManager(registry_dir / "registry.json")
-        _sync_one_repo(tool.get("dir", ""), workspace=(registry_dir==WORKSPACE_DIR), registry_manager=registry_manager, raise_on_missing=False)
+        _sync_one_repo(
+            tool.get("dir", ""),
+            workspace=(registry_dir == WORKSPACE_REGISTRY_DIR),
+            registry_manager=registry_manager,
+            raise_on_missing=False,
+        )
         try:
             tool, registry_dir = get_tool(tool_name)
         except ValueError as ve:
             raise typer.Exit(str(ve))
-        cmd = resolve_script(tool, script_name, shell)
-        typer.echo(f"Updated Script: {cmd}")
 
-    full_command = build_full_command(cmd, additional_args)
-    logger.info("Full command string: %s", full_command)
+    executor = Executor(tool, registry_dir, timeout=60)
 
-    new_cwd = resolve_working_directory(tool, registry_dir)
-    logger.info("Resolved working directory: %s", new_cwd)
-    if not new_cwd.exists():
-        raise ValueError(f"Error: Working directory '{new_cwd}' does not exist.")
-
-    execute_command(full_command, new_cwd)
+    # Execute a script synchronously.
+    try:
+        executor.execute_script(script_name, additional_args)
+    except Exception as e:
+        print(f"Execution error: {e}")
 
 
 @app.command()
@@ -1087,7 +1074,7 @@ def my_upgrade():
 
 
 # ------------------------------------------------------------------------------
-# Final entry point using a main() function
+# Final entry point using a entry() function
 # ------------------------------------------------------------------------------
 def entry():
     """

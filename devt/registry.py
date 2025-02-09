@@ -1,31 +1,26 @@
 # devt/registry.py
 import json
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, asdict, field
+from typing import Any, Dict, Tuple
 from datetime import datetime, timezone
 import logging
+
 # from devt.package_ops import ToolManifest
-from devt.utils import load_json, save_json
+from devt.utils import load_json
 
 from .manifest import validate_manifest
 
+from devt.utils import load_json
+from devt.config import (
+    REGISTRY_FILE,
+    WORKSPACE_REGISTRY_FILE,
+    WORKSPACE_FILE,
+    WORKSPACE_DIR,
+    REGISTRY_DIR,
+    WORKSPACE_REGISTRY_DIR,
+)
+
 logger = logging.getLogger(__name__)
-
-# @dataclass
-# class ToolRegistryEntry:
-#     """
-#     Represents one entry in the registry for a single tool.
-#     """
-#     manifest: ToolManifest
-#     location: str
-#     added: str
-#     source: str
-#     dir: str
-#     active: bool
-#     branch: Optional[str] = None
-#     auto_sync: bool = False
-
 
 class RegistryManager:
     """
@@ -159,3 +154,35 @@ def update_registry_with_workspace(
     command = "workspace"
     registry[command] = registry_entry
     return registry
+
+
+def get_tool(tool_name: str) -> Tuple[dict, Path]:
+    """
+    Look up a tool in the registries.
+
+    Workspace registry is checked first, then the user registry.
+    Returns a tuple (tool_entry, registry_dir) where registry_dir is the base directory
+    for the registry in which the tool was found.
+    """
+    user_registry = load_json(REGISTRY_FILE)
+    workspace_registry = load_json(WORKSPACE_REGISTRY_FILE)
+
+    cwd_registry = update_registry_with_workspace(
+        Path(WORKSPACE_DIR) / "registry.json",
+        {},
+        WORKSPACE_FILE,
+        WORKSPACE_DIR,
+        auto_sync=False,
+    )
+
+    logger.debug("Workspace registry keys: %s", list(workspace_registry.keys()))
+    logger.debug("User registry keys: %s", list(user_registry.keys()))
+
+    if tool_name in cwd_registry:
+        return cwd_registry[tool_name], WORKSPACE_DIR
+    elif tool_name in workspace_registry:
+        return workspace_registry[tool_name], WORKSPACE_REGISTRY_DIR
+    elif tool_name in user_registry:
+        return user_registry[tool_name], REGISTRY_DIR
+    else:
+        raise ValueError(f"Tool '{tool_name}' not found in any registry.")

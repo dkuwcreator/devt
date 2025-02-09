@@ -3,6 +3,11 @@
     "description": "This is my workspace. There are many like it, but this one is mine.",
     "dependencies": {},
     "scripts": {
-        "workspace_test": "echo \"This is a test of the workspace.\""
+        "workspace_test": "echo \"This is a test of the workspace.\"",
+        "requirements": "pip install -r requirements.txt",
+        "deactivate": "deactivate",
+        "windows": {
+            "activate": ".venv/Scripts/Activate.ps1; devt run requirements"
+        }
     }
 }
