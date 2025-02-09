@@ -1,6 +1,5 @@
 # devt/cli.py
 import json
-import logging
 import re
 import shutil
 import os
@@ -22,10 +21,10 @@ from devt.config import (
     WORKSPACE_REGISTRY_FILE,
 )
 from devt.utils import load_json, save_json
-from devt.git_ops import ToolRepo
+from devt.git_manager import ToolRepo
 from devt.registry import RegistryManager, get_tool, update_tool_in_registry
 
-from devt.package_ops import delete_local_package
+from devt.package_manager import delete_local_package
 from devt.executor import Executor
 
 app = typer.Typer(help="DevT: A tool for managing development tool packages.")
@@ -910,8 +909,6 @@ def do(
     The tool is looked up first in the workspace registry, then in the user registry.
     """
 
-    # shell = "posix" if os.name != "nt" else "windows"
-
     # Lookup the tool from the registries.
     try:
         tool, registry_dir = get_tool(tool_name)
@@ -932,7 +929,7 @@ def do(
         except ValueError as ve:
             raise typer.Exit(str(ve))
 
-    executor = Executor(tool, registry_dir, timeout=60)
+    executor = Executor(tool, registry_dir, timeout=None)
 
     # Execute a script synchronously.
     try:
@@ -944,9 +941,7 @@ def do(
 @app.command()
 def run(
     script_name: str = typer.Argument(..., help="The name of the script to run."),
-    additional_args: Optional[List[str]] = typer.Argument(
-        None, help="Additional arguments to pass to the script."
-    ),
+    additional_args: Annotated[Optional[List[str]], typer.Argument()] = None,
 ):
     """
     Run a specified script for the given tool.

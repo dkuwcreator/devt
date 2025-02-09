@@ -2,12 +2,11 @@
 import logging
 from pathlib import Path
 import shutil
-from typing import Dict, Any, List, Optional, Tuple
-from urllib.parse import urlparse
+from typing import Optional
 from git import Repo
 import typer
 
-from devt.package_ops import BaseToolCollection
+from devt.package_manager import BaseToolCollection
 from devt.registry import RegistryManager
 from devt.utils import on_exc
 
@@ -57,10 +56,10 @@ class ToolRepo(BaseToolCollection):
                 raise
         else:
             logger.debug(
-                    "Repo '%s' already exists at %s. No clone needed.",
-                    self.name,
-                    self.base_path,
-                )
+                "Repo '%s' already exists at %s. No clone needed.",
+                self.name,
+                self.base_path,
+            )
             typer.echo(f"Repo '{self.name}' already exists at {self.base_path}.")
             typer.echo(f"Use 'devt sync {self.name}' to pull the latest changes.")
             # if self.branch is None:
@@ -70,7 +69,7 @@ class ToolRepo(BaseToolCollection):
             #         f"Use 'devt sync {self.name} --branch {self.branch}' to pull the latest changes."
             #     )
             return False
-                
+
     def sync_collection(self) -> bool:
         """
         Pull the latest changes if auto_sync is True.
@@ -121,9 +120,7 @@ class ToolRepo(BaseToolCollection):
         is_setup = self.setup_collection()
         if is_setup:
             is_added = self.add_tools_to_registry(
-                source=self.remote_url,
-                branch=self.branch,
-                auto_sync=self.auto_sync
+                source=self.remote_url, branch=self.branch, auto_sync=self.auto_sync
             )
             if is_added:
                 self.registry_manager.save_registry()
@@ -135,9 +132,7 @@ class ToolRepo(BaseToolCollection):
         is_synced = self.sync_collection()
         if is_synced:
             is_added = self.add_tools_to_registry(
-                source=self.remote_url,
-                branch=self.branch,
-                auto_sync=self.auto_sync
+                source=self.remote_url, branch=self.branch, auto_sync=self.auto_sync
             )
             if is_added:
                 self.registry_manager.save_registry()
@@ -150,46 +145,3 @@ class ToolRepo(BaseToolCollection):
         if is_removed:
             self._remove_associated_tools()
             self.registry_manager.save_registry()
-
-
-def update_repo(repo_dir: Path, branch: str = None) -> Path:
-    """
-    Update a git repository.
-    """
-    repo = Repo(repo_dir)
-    if repo.is_dirty():
-        logger.warning(
-            "Repository %s is dirty. Resetting to a clean state...", repo_dir
-        )
-        repo.git.reset("--hard")
-    logger.info("Updating repository %s...", repo_dir)
-    if branch:
-        repo.git.checkout(branch)
-    repo.remotes.origin.pull()
-    return repo_dir
-
-
-def clone_or_update_repo(
-    repo_url: str, base_dir: Path, branch: str = None
-) -> Tuple[Path, str]:
-    """
-    Clone or update a git repository.
-    """
-    repo_name = Path(urlparse(repo_url).path).stem
-    repo_dir = base_dir / "repos" / repo_name
-
-    try:
-        if repo_dir.exists():
-            update_repo(repo_dir, branch=branch)
-        else:
-            logger.info("Cloning repository %s...", repo_url)
-            if branch is None:
-                repo = Repo.clone_from(repo_url, repo_dir)
-                branch = repo.active_branch.name
-            else:
-                Repo.clone_from(repo_url, repo_dir, branch=branch)
-    except Exception as e:
-        logger.error("Failed to clone or update repository %s: %s", repo_url, e)
-        raise
-
-    return repo_dir, branch

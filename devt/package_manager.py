@@ -4,17 +4,18 @@ import json
 import shutil
 import logging
 from pathlib import Path
+
 # import json
 from abc import ABC, abstractmethod
 
 from devt.registry import RegistryManager
-from typing import Dict, Any, List, Optional
+from typing import List, Optional
+
 # from dataclasses import dataclass, asdict, field
 
 # from devt.registry import RegistryManager
 
 from .utils import on_exc, save_json
-# from .git_ops import clone_or_update_repo
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 #     dependencies: Dict[str, Any] = field(default_factory=dict)
 
 #     # Scripts can be deeply nested, so we keep it flexible:
-#     # e.g., 
+#     # e.g.,
 #     #   {
 #     #       "windows": {"install": "...", "update": "..."},
 #     #       "posix": {"update": "..."},
@@ -50,6 +51,7 @@ logger = logging.getLogger(__name__)
 #     #       ...
 #     #   }
 #     scripts: Dict[str, Any] = field(default_factory=dict)
+
 
 class BaseToolCollection(ABC):
     """
@@ -105,7 +107,11 @@ class BaseToolCollection(ABC):
         """
         tool_dirs = self.find_tool_dirs()
         if not tool_dirs:
-            logger.warning("No tool directories found for %s '%s'.", self.__class__.__name__, self.name)
+            logger.warning(
+                "No tool directories found for %s '%s'.",
+                self.__class__.__name__,
+                self.name,
+            )
             logger.warning("Removing collection '%s'...", self.name)
             self.remove_collection(force=True)
             return False
@@ -123,7 +129,7 @@ class BaseToolCollection(ABC):
         except Exception as e:
             logger.error("Error adding tools to registry: %s", e)
             return False
-        
+
     def _register_tool_dir(
         self, tool_dir: Path, source: str, branch: Optional[str], auto_sync: bool
     ) -> None:
@@ -184,6 +190,7 @@ class BaseToolCollection(ABC):
                 self.name,
             )
 
+
 class ToolGroup(BaseToolCollection):
     """
     A purely local group of tools. Typically located at: app_dir / 'tools' / <group_name>.
@@ -191,11 +198,15 @@ class ToolGroup(BaseToolCollection):
 
     def setup_collection(self) -> bool:
         if not self.base_path.exists():
-            logger.info("Creating local tool group '%s' at %s", self.name, self.base_path)
+            logger.info(
+                "Creating local tool group '%s' at %s", self.name, self.base_path
+            )
             self.base_path.mkdir(parents=True, exist_ok=True)
             return True
         else:
-            logger.debug("Tool group '%s' already exists at %s.", self.name, self.base_path)
+            logger.debug(
+                "Tool group '%s' already exists at %s.", self.name, self.base_path
+            )
             return False
 
     def sync_collection(self) -> None:
@@ -206,14 +217,18 @@ class ToolGroup(BaseToolCollection):
 
     def remove_collection(self, force: bool = False) -> bool:
         if not force:
-            logger.info("Confirm removal of local group '%s' at %s", self.name, self.base_path)
+            logger.info(
+                "Confirm removal of local group '%s' at %s", self.name, self.base_path
+            )
             # CLI prompt or other logic could go here.
 
         if not self.base_path.exists():
             logger.warning("Group directory %s not found.", self.base_path)
             return False
 
-        logger.info("Removing local tool group '%s' at %s...", self.name, self.base_path)
+        logger.info(
+            "Removing local tool group '%s' at %s...", self.name, self.base_path
+        )
         try:
             shutil.rmtree(self.base_path)
             logger.info("Successfully removed group '%s'.", self.name)
@@ -231,7 +246,7 @@ class ToolGroup(BaseToolCollection):
             is_added = self.add_tools_to_registry(source=self.base_path)
             if is_added:
                 self.registry_manager.save_registry()
-    
+
     def remove_group(self, force: bool = False) -> None:
         """
         Remove the local group and associated tools from the registry.
@@ -242,8 +257,6 @@ class ToolGroup(BaseToolCollection):
             self.registry_manager.save_registry()
 
 
-
-
 def add_local(local_path: str, base_dir: Path) -> Path:
     """
     Add a local tool to the specified base directory.
@@ -252,13 +265,15 @@ def add_local(local_path: str, base_dir: Path) -> Path:
     source_path = Path(local_path).resolve()
     if not source_path.exists():
         raise FileNotFoundError(f"Path '{local_path}' does not exist.")
-    
+
     # Default destination: simply copy the source folder into base_dir/tools using its name.
     destination = base_dir / "tools" / source_path.name
     try:
         shutil.copytree(source_path, destination, dirs_exist_ok=True)
     except Exception as e:
-        logger.error("Failed to copy local path %s to %s: %s", source_path, destination, e)
+        logger.error(
+            "Failed to copy local path %s to %s: %s", source_path, destination, e
+        )
         raise
 
     return destination
@@ -273,7 +288,7 @@ def import_local_package(local_path: str, base_dir: Path) -> Path:
     source_path = Path(local_path).resolve()
     if not source_path.exists():
         raise FileNotFoundError(f"Path '{local_path}' does not exist.")
-    
+
     destination = base_dir / "tools" / source_path.name
     try:
         shutil.copytree(source_path, destination, dirs_exist_ok=True)
@@ -304,10 +319,12 @@ def export_local_package(package_name: str, destination_path: str, base_dir: Pat
         raise
 
 
-def delete_local_package(tool_key: str, base_dir: Path, registry: dict, registry_file: Path):
+def delete_local_package(
+    tool_key: str, base_dir: Path, registry: dict, registry_file: Path
+):
     """
     Delete a local tool package from the registry.
-    
+
     Instead of assuming the package folder is simply base_dir / "tools" / tool_key,
     we use the registry entry's "location" field. For example, if the registry entry's
     "location" is "tools\\test_tools\\test\\manifest.json", we delete its parent folder.
@@ -319,7 +336,10 @@ def delete_local_package(tool_key: str, base_dir: Path, registry: dict, registry
 
     location = entry.get("location", "")
     if not location.startswith("tools"):
-        logger.error("Registry entry for tool '%s' does not appear to be a local package.", tool_key)
+        logger.error(
+            "Registry entry for tool '%s' does not appear to be a local package.",
+            tool_key,
+        )
         return
 
     # Construct the absolute path to the manifest file; if location is relative, use base_dir.
@@ -343,10 +363,12 @@ def delete_local_package(tool_key: str, base_dir: Path, registry: dict, registry
         logger.warning("Tool package directory not found: %s", tool_dir)
 
 
-def remove_repository(repo_name: str, base_dir: Path, registry: dict, registry_file: Path):
+def remove_repository(
+    repo_name: str, base_dir: Path, registry: dict, registry_file: Path
+):
     """
     Remove a repository from the registry.
-    
+
     This function deletes the local repository directory and then filters
     the registry to remove any tools whose "dir" field matches repo_name.
     """
@@ -356,29 +378,14 @@ def remove_repository(repo_name: str, base_dir: Path, registry: dict, registry_f
             shutil.rmtree(repo_dir, onexc=on_exc)
             logger.info("Repository '%s' removed successfully.", repo_name)
             # Filter registry entries not belonging to the repository.
-            new_registry = {key: value for key, value in registry.items() if value.get("dir") != repo_name}
+            new_registry = {
+                key: value
+                for key, value in registry.items()
+                if value.get("dir") != repo_name
+            }
             save_json(registry_file, new_registry)
         except Exception as e:
             logger.error("Failed to remove repository '%s': %s", repo_name, e)
             raise
     else:
         logger.warning("Repository directory not found: %s", repo_dir)
-
-
-def sync_repositories(base_dir: Path):
-    """
-    Sync all repositories in the registry by pulling the latest changes.
-    """
-    repos_dir = base_dir / "repos"
-    if not repos_dir.exists():
-        logger.warning("No repositories found to sync.")
-        return
-
-    logger.info("Syncing repositories in %s...", repos_dir)
-    for repo_path in repos_dir.iterdir():
-        if repo_path.is_dir():
-            try:
-                # Call clone_or_update_repo with the directory path as a string.
-                clone_or_update_repo(str(repo_path), base_dir, branch=None)
-            except Exception as e:
-                logger.error("Failed to sync repository '%s': %s", repo_path.name, e)

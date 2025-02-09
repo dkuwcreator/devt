@@ -45,15 +45,19 @@ stream_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
+
 def configure_logging(log_level: str):
     """
     Configure the logging level based on the provided log level string.
     """
     level = LOG_LEVELS.get(log_level.upper())
     if level is None:
-        logger.warning("Log level '%s' is not recognized. Defaulting to WARNING.", log_level)
+        logger.warning(
+            "Log level '%s' is not recognized. Defaulting to WARNING.", log_level
+        )
         level = logging.WARNING
     logger.setLevel(level)
+
 
 def set_user_environment_var(name: str, value: str):
     """
@@ -86,5 +90,6 @@ def setup_environment():
     set_user_environment_var("DEVT_WORKSPACE_DIR", str(WORKSPACE_DIR))
 
     logger.info("Environment variables set successfully")
+
 
 setup_environment()

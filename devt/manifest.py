@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from jsonschema import validate, ValidationError
 
-logger = logging.getLogger("devt")
+logger = logging.getLogger(__name__)
 
 MANIFEST_SCHEMA = {
     "type": "object",
@@ -16,6 +16,7 @@ MANIFEST_SCHEMA = {
     "required": ["name", "command", "scripts"],
 }
 
+
 def validate_manifest(manifest_path: Path):
     try:
         with open(manifest_path, "r") as file:
@@ -25,9 +26,9 @@ def validate_manifest(manifest_path: Path):
 
         # Check for the presence of an install script (generic or shell-specific)
         install_present = (
-            "install" in scripts or
-            ("windows" in scripts and "install" in scripts["windows"]) or
-            ("posix" in scripts and "install" in scripts["posix"])
+            "install" in scripts
+            or ("windows" in scripts and "install" in scripts["windows"])
+            or ("posix" in scripts and "install" in scripts["posix"])
         )
         if not install_present:
             logger.error(f"Manifest scripts: {json.dumps(scripts, indent=4)}")
