@@ -3,13 +3,15 @@
   "description": "This is my workspace. There are many like it, but this one is mine.",
   "dependencies": {},
   "scripts": {
-    "workspace_test": "echo \"This is a test of the workspace.\"",
+    "workspace_test": "echo This is a test of the workspace!",
     "requirements": "pip install -r requirements.txt",
     "deactivate": "deactivate",
-    "windows": {
-      "package-upgrade": "pip --disable-pip-version-check list --outdated --format=json | ConvertFrom-Json | ForEach-Object { pip install -U $_.name }; pip freeze > requirements.txt",
-      "hello": "./hello.ps1",
-      "activate": ".venv/Scripts/Activate.ps1; pip install -r requirements.txt"
+    "package-upgrade": "pip --disable-pip-version-check list --outdated --format=json | ConvertFrom-Json | ForEach-Object { pip install -U $_.name }; pip freeze > requirements.txt",
+    "hello": {
+      "windows": "pwsh -File ./hello.ps1"
+    },
+    "activate": {
+      "windows": "pwsh -NoExit -Command .venv/Scripts/Activate.ps1; pip install -r requirements.txt"
     }
   }
 }

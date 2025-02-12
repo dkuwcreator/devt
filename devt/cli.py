@@ -13,6 +13,7 @@ from devt import __version__
 
 # Import functions and constants from our modules
 from devt.config import (
+    WORKSPACE_DIR,
     configure_logging,
     logger,
     REGISTRY_DIR,
@@ -20,12 +21,12 @@ from devt.config import (
     REGISTRY_FILE,
     WORKSPACE_REGISTRY_FILE,
 )
-from devt.utils import load_json, save_json
+from devt.utils import find_file_type, load_json, save_json
 from devt.git_manager import ToolRepo
 from devt.registry import RegistryManager, get_tool, update_tool_in_registry
 
 from devt.package_manager import ToolGroup
-from devt.executor import Executor
+from devt.executor import Executor, ManifestRunner
 
 app = typer.Typer(help="DevT: A tool for managing development tool packages.")
 
@@ -355,13 +356,14 @@ def import_package(
         logger.error("Path '%s' does not exist.", local_path)
         raise typer.Exit()
 
-
     # Base destination for local packages.
     dest_base = app_dir / "tools"
 
-    if local_path_obj.is_file() or  (local_path_obj / "manifest.json").is_file():
+    if local_path_obj.is_file() or (local_path_obj / "manifest.json").is_file():
         # Assume it's a manifest file: use its parent as the package.
-        pkg_folder = local_path_obj.parent if local_path_obj.is_file() else local_path_obj
+        pkg_folder = (
+            local_path_obj.parent if local_path_obj.is_file() else local_path_obj
+        )
         print(pkg_folder)
         group_name = group if group else "default"
         dest = dest_base / group_name / pkg_folder.name
@@ -387,7 +389,9 @@ def import_package(
         dest = dest_base / group_name
         if dry_run:
             logger.info(
-                "Dry run: would import package from folder '%s' to '%s'", local_path, dest
+                "Dry run: would import package from folder '%s' to '%s'",
+                local_path,
+                dest,
             )
             raise typer.Exit()
         tool_group = ToolGroup(
@@ -432,7 +436,6 @@ def delete_tool_or_group(
     registry_file = app_dir / "registry.json"
 
     registry_manager = RegistryManager(registry_file)
-    
 
     if group:
         tool_group = ToolGroup(
@@ -843,6 +846,21 @@ def init_project():
 # Execute Commands (Do, Run, Install, Uninstall, Upgrade, Version, Test)
 # ---------------------------------------------------------------------------
 
+# import psutil
+
+# def is_activated_by_powershell():
+#     parent_process = psutil.Process().parent()
+#     print(psutil)
+#     print(psutil.Process())
+#     print(psutil.Process().parent())
+#     print(psutil.Process().parent().parent())
+#     print(psutil.Process().parent().parent().parent())
+#     print(parent_process)
+#     print(parent_process.name())
+#     return 'powershell' in parent_process.name().lower()
+
+
+
 
 @app.command("do")
 def do(
@@ -855,6 +873,11 @@ def do(
 
     The tool is looked up first in the workspace registry, then in the user registry.
     """
+
+    # if is_activated_by_powershell():
+    #     print("This script was activated by PowerShell.")
+    # else:
+    #     print("This script was not activated by PowerShell.")
 
     # Lookup the tool from the registries.
     try:
@@ -876,11 +899,13 @@ def do(
         except ValueError as ve:
             raise typer.Exit(str(ve))
 
-    executor = Executor(tool, registry_dir, timeout=None)
+    manifest_path = registry_dir / tool.get("location")
+
+    executor = ManifestRunner(manifest_path)
 
     # Execute a script synchronously.
     try:
-        executor.execute_script(script_name, additional_args)
+        executor.run_script(script_name, additional_args)
     except Exception as e:
         print(f"Execution error: {e}")
 
@@ -893,7 +918,19 @@ def run(
     """
     Run a specified script for the given tool.
     """
-    do("workspace", script_name, additional_args)
+    # Check if "workspace" .json | .cjson | .yaml | .yml exists in the current directory.
+    workspace_file = find_file_type("workspace")
+    if not workspace_file:
+        typer.echo("No workspace file found in the current directory.")
+        raise typer.Exit(code=1)
+
+    executor = ManifestRunner(workspace_file)
+
+    # Execute a script synchronously.
+    try:
+        executor.run_script(script_name, additional_args)
+    except Exception as e:
+        print(f"Execution error: {e}")
 
 
 @app.command()
