@@ -2,6 +2,7 @@
 import json
 import logging
 from pathlib import Path
+from typing import Optional
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,18 @@ def save_json(file_path: Path, data: dict):
     file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, "w") as file:
         json.dump(data, file, indent=4)
+
+
+def find_file_type(file_type: str, current_dir: Path = Path.cwd()) -> Optional[Path]:
+    """
+    Check if a workspace file (.json, .cjson, .yaml, .yml) exists in the current directory.
+    Returns the path to the workspace file if found, otherwise None.
+    """
+    for ext in ["yaml", "yml", "json", "cjson"]:
+        workspace_file = current_dir / f"{file_type}.{ext}"
+        if workspace_file.exists():
+            return workspace_file
+    return None
 
 
 def determine_source(source: str) -> str:
