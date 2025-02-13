@@ -12,6 +12,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, List
 
+from devt.utils import merge_configs
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +31,7 @@ class CommandExecutionError(Exception):
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
+
 
 #!/usr/bin/env python3
 """
@@ -101,64 +104,13 @@ def to_tokens(
     return shlex.split(val, posix=posix) if split else [val]
 
 
-def merge_configs(*configs: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Merge multiple dictionaries in order, where later values overwrite earlier ones.
-    If both values for a key are dictionaries, merge them shallowly.
-    """
-    result: Dict[str, Any] = {}
-    for config in configs:
-        if not config:
-            continue
-        for key, value in config.items():
-            if (
-                key in result
-                and isinstance(result[key], dict)
-                and isinstance(value, dict)
-            ):
-                merged = result[key].copy()
-                merged.update(value)
-                result[key] = merged
-            else:
-                result[key] = value
-    return result
-
-
 class ManifestRunner:
     """Class-based runner that loads and interprets a YAML manifest."""
 
-    def __init__(self, manifest_path: str) -> None:
-        self.manifest_path = Path(manifest_path).resolve()
-        self.manifest_dir = self.manifest_path.parent
-        self.manifest = self._load_manifest()
+    def __init__(self, base_dir: Path, scripts_dict: Dict[str, Any]) -> None:
+        self.base_dir = base_dir
+        self.scripts_dict = scripts_dict
         self.current_os = "posix" if os.name == "posix" else "windows"
-
-    def _load_manifest(self) -> Dict[str, Any]:
-        """Load and parse the manifest file (YAML or JSON)."""
-        if not self.manifest_path.is_file():
-            raise FileNotFoundError(f"Manifest file not found: {self.manifest_path}")
-        
-        with self.manifest_path.open("r", encoding="utf-8") as f:
-            if self.manifest_path.suffix in ['.yaml', '.yml']:
-                data = yaml.safe_load(f)
-            elif self.manifest_path.suffix in ['.json', '.cjson']:
-                data = json.load(f)
-            else:
-                raise ValueError(f"Unsupported file extension: {self.manifest_path.suffix}")
-
-            if not data:
-                raise ValueError(
-                    f"Manifest file is empty or invalid: {self.manifest_path}"
-                )
-        return data
-
-    def _get_script_entry(self, script_name: str) -> Any:
-        scripts = self.manifest.get("scripts", {})
-        if self.current_os in scripts:
-            scripts.update(scripts[self.current_os])
-        if script_name not in scripts:
-            raise ValueError(f"Script '{script_name}' not found in manifest.")
-        return scripts[script_name]
 
     def _prepare_command(
         self,
@@ -195,6 +147,34 @@ class ManifestRunner:
         else:
             return shlex.join(final_tokens)
 
+    def _get_script_entry(
+        self, scripts: Dict[str, Any], script_key: str
+    ) -> Dict[str, Any]:
+        os_specific = scripts.get(self.current_os)
+        if isinstance(os_specific, (str, list)):
+            scripts[self.current_os] = {"args": os_specific}
+        elif os_specific is not None and not isinstance(os_specific, dict):
+            raise ValueError("OS-specific scripts must be strings, lists, or dicts.")
+        
+        base = merge_configs(scripts, scripts.get(self.current_os, {}))
+        entry = base.get(script_key)
+        if entry is None:
+            raise ValueError(f"Script '{script_key}' not found in manifest.")
+
+        if isinstance(entry, (str, list)):
+            entry = {"args": entry}
+        elif not isinstance(entry, dict):
+            raise ValueError("Script entry must be a string, list, or dict.")
+
+        os_specific = entry.get(self.current_os)
+        if isinstance(os_specific, (str, list)):
+            entry[self.current_os] = {"args": os_specific}
+        elif os_specific is not None and not isinstance(os_specific, dict):
+            raise ValueError("OS-specific script entry must be a string, list, or dict.")
+
+        entry = merge_configs(entry, entry.get(self.current_os, {}))
+        return merge_configs(base, entry)
+
     def _prepare_args(
         self, merged_config: Dict[str, Any], extra_args: Optional[List[str]]
     ) -> str:
@@ -208,15 +188,17 @@ class ManifestRunner:
             shell_wrapper=merged_config.get("shwr", None),
         )
 
-    def _resolve_cwd(self, merged_config: Dict[str, Any]) -> Path:
-        """Resolve and validate the cwd setting."""
-        cwd_value = merged_config.get("cwd", str(self.manifest_dir))
-        final_cwd_path = self.resolve_path(cwd_value)
-        if not final_cwd_path.is_dir():
-            raise FileNotFoundError(
-                f"Working directory '{final_cwd_path}' does not exist."
-            )
-        return final_cwd_path
+    def _apply_cwd(self, merged_config: Dict[str, Any]) -> None:
+        """Resolve and apply the 'cwd' key if present."""
+        if "cwd" in merged_config:
+            final_cwd = (self.base_dir / Path(merged_config["cwd"])).resolve()
+        else:
+            final_cwd = self.base_dir
+
+        if not final_cwd.is_dir():
+            raise FileNotFoundError(f"Working directory '{final_cwd}' does not exist.")
+
+        merged_config["cwd"] = str(final_cwd)
 
     def _apply_env(self, merged_config: Dict[str, Any]) -> None:
         """Merge environment variables if 'env' key is present."""
@@ -226,11 +208,6 @@ class ManifestRunner:
     def _filter_allowed_keys(self, merged_config: Dict[str, Any]) -> Dict[str, Any]:
         """Filter configuration so that only keys accepted by subprocess.run() remain."""
         return {k: merged_config[k] for k in ALLOWED_KEYS if k in merged_config}
-
-    def resolve_path(self, path_str: str) -> Path:
-        """Resolve a path (possibly relative) to an absolute path within the manifest directory."""
-        p = Path(path_str)
-        return (self.manifest_dir / p).resolve()
 
     def build_command(
         self,
@@ -250,40 +227,17 @@ class ManifestRunner:
 
         Note: We always set `shell=True` for subprocess.run.
         """
-        global_config = {k: v for k, v in self.manifest.items() if k != "scripts"}
-        if "cwd" not in global_config:
-            global_config["cwd"] = str(self.manifest_dir)
-
-        # Gather script config
-        script_entry = self._get_script_entry(script_name)
-        if isinstance(script_entry, (str, list)):
-            script_config = {"args": script_entry}
-        elif isinstance(script_entry, dict):
-            script_config = script_entry.copy()
-        else:
-            raise ValueError("Script entry must be a string, list, or dict.")
-
-        # Check OS-specific config
-        os_specific = {}
-        if isinstance(script_entry, dict) and self.current_os in script_entry:
-            os_specific = script_entry[self.current_os]
-        if isinstance(os_specific, (str, list)):
-            os_specific = {"args": os_specific}
-
-        # Merge config in order: global < script < os-specific
-        merged_config = merge_configs(global_config, script_config, os_specific)
+        # Build merged config
+        merged_config = self._get_script_entry(self.scripts_dict, script_name)
 
         # Always run with shell=True
         merged_config["shell"] = True
 
         # Prepare final args
-        final_args_str = self._prepare_args(merged_config, extra_args)
-        # final_args_str = self._prepare_command(final_args_str)
-        merged_config["args"] = final_args_str
+        merged_config["args"] = self._prepare_args(merged_config, extra_args)
 
-        # Resolve & validate cwd
-        final_cwd_path = self._resolve_cwd(merged_config)
-        merged_config["cwd"] = str(final_cwd_path)
+        # Apply working directory
+        self._apply_cwd(merged_config)
 
         # Merge environment
         self._apply_env(merged_config)
@@ -308,8 +262,9 @@ class ManifestRunner:
         kwargs = self._filter_allowed_keys(kwargs)
         # Merge any extra kwargs (like 'check=True', etc.)
         final_config.update(kwargs)
-        logger.info("Running script '%s' with config: %s", script_name, final_config)
+        # logger.info("Running script '%s' with config: %s", script_name, final_config)
         return subprocess.run(**final_config)
+
 
 class Executor:
     def __init__(

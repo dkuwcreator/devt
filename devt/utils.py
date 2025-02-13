@@ -2,8 +2,10 @@
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,47 @@ def find_file_type(file_type: str, current_dir: Path = Path.cwd()) -> Optional[P
         if workspace_file.exists():
             return workspace_file
     return None
+
+
+def load_manifest(manifest_path: Path) -> Dict[str, Any]:
+    """Load and parse the manifest file (YAML or JSON)."""
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
+
+    with manifest_path.open("r", encoding="utf-8") as f:
+        if manifest_path.suffix in [".yaml", ".yml"]:
+            data = yaml.safe_load(f)
+        elif manifest_path.suffix in [".json", ".cjson"]:
+            data = json.load(f)
+        else:
+            raise ValueError(f"Unsupported file extension: {manifest_path.suffix}")
+
+        if not data:
+            raise ValueError(f"Manifest file is empty or invalid: {manifest_path}")
+    return data
+
+
+def merge_configs(*configs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Merge multiple dictionaries in order, where later values overwrite earlier ones.
+    If both values for a key are dictionaries, merge them shallowly.
+    """
+    result: Dict[str, Any] = {}
+    for config in configs:
+        if not config:
+            continue
+        for key, value in config.items():
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(value, dict)
+            ):
+                merged = result[key].copy()
+                merged.update(value)
+                result[key] = merged
+            else:
+                result[key] = value
+    return result
 
 
 def determine_source(source: str) -> str:

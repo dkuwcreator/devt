@@ -4,10 +4,11 @@ import re
 import shutil
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import requests
 import typer
 from typing_extensions import Annotated
+import yaml
 
 from devt import __version__
 
@@ -21,12 +22,12 @@ from devt.config import (
     REGISTRY_FILE,
     WORKSPACE_REGISTRY_FILE,
 )
-from devt.utils import find_file_type, load_json, save_json
+from devt.utils import find_file_type, load_json, load_manifest, save_json
 from devt.git_manager import ToolRepo
 from devt.registry import RegistryManager, get_tool, update_tool_in_registry
 
 from devt.package_manager import ToolGroup
-from devt.executor import Executor, ManifestRunner
+from devt.executor import Executor, ManifestRunner, merge_configs
 
 app = typer.Typer(help="DevT: A tool for managing development tool packages.")
 
@@ -862,6 +863,17 @@ def init_project():
 
 
 
+
+def get_execute_args(manifest_path: Path) -> Tuple[Path, Dict[str, Any]]:
+    """Get the arguments for executing a script."""
+    base_dir = manifest_path.parent
+    manifest_data = load_manifest(manifest_path)
+    global_dict = {k: v for k, v in manifest_data.items() if k != "scripts"}
+    scripts_dict = manifest_data.get("scripts", {})
+    if not scripts_dict:
+        raise ValueError("No scripts found in the manifest file.")
+    return base_dir, merge_configs(global_dict, scripts_dict)
+
 @app.command("do")
 def do(
     tool_name: str = typer.Argument(..., help="The tool to run the script for."),
@@ -901,7 +913,9 @@ def do(
 
     manifest_path = registry_dir / tool.get("location")
 
-    executor = ManifestRunner(manifest_path)
+    base_dir, scripts_dict = get_execute_args(manifest_path)
+
+    executor = ManifestRunner(base_dir, scripts_dict)
 
     # Execute a script synchronously.
     try:
@@ -924,7 +938,10 @@ def run(
         typer.echo("No workspace file found in the current directory.")
         raise typer.Exit(code=1)
 
-    executor = ManifestRunner(workspace_file)
+    base_dir, scripts_dict = get_execute_args(workspace_file)
+    print(base_dir, scripts_dict)
+    
+    executor = ManifestRunner(base_dir, scripts_dict)
 
     # Execute a script synchronously.
     try:
