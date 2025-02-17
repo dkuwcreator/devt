@@ -7,6 +7,6 @@ scripts:
   deactivate: deactivate
   package-upgrade: pip --disable-pip-version-check list --outdated --format=json | ConvertFrom-Json | ForEach-Object { pip install -U $_.name }; pip freeze > requirements.txt
   hello: 
-    windows: pwsh -File ./hello.ps1
+    windows: ./hello.ps1
   activate:
     windows: pwsh -NoExit -Command .venv/Scripts/Activate.ps1; pip install -r requirements.txt
