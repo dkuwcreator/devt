@@ -1,0 +1,6 @@
+name: Sample Tool
+description: A tool to run sample checks.
+command: sample_tool
+scripts:
+  run_checks: "echo Running checks..."
+  install: "echo Installing..."

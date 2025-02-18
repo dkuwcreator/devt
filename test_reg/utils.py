@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import urlparse
 
+from jsonschema import ValidationError, validate
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -119,3 +120,39 @@ def on_exc(func, path, exc):
         func(path)  # Retry the operation
     else:
         raise exc  # Re-raise any other exception
+
+MANIFEST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "command": {"type": "string"},
+        "scripts": {"type": "object"},
+    },
+    "required": ["name", "command", "scripts"],
+}
+
+
+def validate_manifest(manifest: dict) -> bool:
+    """
+    Validate a manifest against the schema.
+    """
+    logger.info("Validating manifest: %s", manifest)
+    try:
+        validate(instance=manifest, schema=MANIFEST_SCHEMA)
+        scripts = manifest.get("scripts", {})
+
+        # Check for the presence of an install script (generic or shell-specific)
+        install_present = (
+            "install" in scripts
+            or ("windows" in scripts and "install" in scripts["windows"])
+            or ("posix" in scripts and "install" in scripts["posix"])
+        )
+        if not install_present:
+            logger.error(f"Manifest scripts: {json.dumps(scripts, indent=4)}")
+            return False
+
+        return True
+
+    except ValidationError as e:
+        logger.error("Manifest validation error: %s", e)
+        return False

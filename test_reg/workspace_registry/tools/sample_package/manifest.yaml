@@ -1,0 +1,8 @@
+name: Sample Tool
+description: A tool to run sample checks.
+command: sample_tool
+scripts:
+  shell: pwsh -Command 
+  run_checks: echo Running checks, but not really...
+  install: echo Installing...
+  hello: ./hello.ps1
