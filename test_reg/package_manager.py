@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass, field
 
 from config import SUBPROCESS_ALLOWED_KEYS
+from devt.registry_manager import Registry
 from executor import CURRENT_OS, IS_WINDOWS, default_shell_prefix, needs_shell_fallback, to_tokens
 from utils import find_file_type, load_manifest, merge_configs, validate_manifest
 
@@ -93,21 +94,11 @@ class PackageBuilder:
     Processes a package directory by locating its manifest,
     validating it, and building ToolPackage and Script objects.
     """
-    def __init__(self, package_path: Path):
-        self.package_path = package_path
-        self.manifest_path = self.find_manifest(package_path)
+    def __init__(self, manifest_path: Path):
+        self.package_path = manifest_path.parent
+        self.manifest_path = manifest_path
         self.manifest = self._load_manifest(self.manifest_path)
         self.scripts = self._build_scripts(self.manifest)
-
-    def find_manifest(self, package_path: Path) -> Path:
-        # Log all files in the package directory for debugging.
-        for f in package_path.iterdir():
-            logging.getLogger(__name__).info("Found file in package: %s", f.name)
-            
-        manifest_path = find_file_type("manifest", package_path)
-        if not manifest_path:
-            raise FileNotFoundError("Manifest file not found in the package directory.")
-        return manifest_path
 
     def _load_manifest(self, manifest_path: Path) -> Dict[str, Any]:
         manifest = load_manifest(manifest_path)
@@ -176,7 +167,7 @@ class PackageManager:
     It can import, list, remove, update packages,
     and run their scripts.
     """
-    def __init__(self, registry):
+    def __init__(self, registry: Registry):
         """
         :param registry: An instance of the ORM-based Registry.
         """
@@ -195,10 +186,11 @@ class PackageManager:
         shutil.copytree(package_dir, registry_package_dir)
         return registry_package_dir
 
-    def import_package(self, manifest_path: Path):
-        package_dir = manifest_path.parent
+    def import_package(self, source: Path, collection: str = "default"):
+        package_dir = source.parent if source.is_file() else source
         registry_package_dir = self.move_package_to_registry(package_dir)
-        package = PackageBuilder(registry_package_dir).build_package()
+        manifest_path = find_file_type("manifest", registry_package_dir)
+        package = PackageBuilder(manifest_path).build_package()
         try:
             # Attempt to add package. If it fails due to IntegrityError, update it.
             self.registry.add_package(
@@ -207,6 +199,7 @@ class PackageManager:
                 package.description,
                 str(package.location),
                 package.dependencies,
+                collection,
             )
             self.logger.info("Package added successfully.")
         except Exception as e:
@@ -219,6 +212,7 @@ class PackageManager:
                 package.description,
                 str(package.location),
                 package.dependencies,
+                collection,
             )
 
         for script_name, script in package.scripts.items():
@@ -226,7 +220,7 @@ class PackageManager:
                 self.registry.add_script(package.command, script_name, script)
             except Exception as e:
                 self.logger.error("Error adding script '%s': %s", script_name, e)
-                
+               
     def list_packages(self) -> List[str]:
         return self.registry.list_packages()
 
@@ -286,9 +280,8 @@ class PackageManager:
         This version assumes that the package folder is already in the registry and does not move or copy it.
         It also updates each script: if a script record exists, it updates it; otherwise, it adds it.
         """
-        package_dir = manifest_path.parent
         # Re-read the package from the existing folder.
-        package = PackageBuilder(package_dir).build_package()
+        package = PackageBuilder(manifest_path).build_package()
         try:
             self.registry.update_package(
                 package.command,

@@ -9,11 +9,14 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass, field
 
-from executor import IS_WINDOWS, default_shell_prefix, needs_shell_fallback, to_tokens
-from utils import find_file_type, load_manifest, validate_manifest
+from devt.registry_manager import Registry
+from devt.executor import IS_WINDOWS, default_shell_prefix, needs_shell_fallback, to_tokens
+from devt.utils import find_file_type, load_manifest, validate_manifest
+
 
 def now() -> str:
     return datetime.now().isoformat()
+
 
 # ---------------------------
 # Script Class
@@ -23,6 +26,7 @@ class Script:
     """
     A class representing a command (or script) defined in a package manifest.
     """
+
     args: Union[str, List[str]]
     shell: Optional[str] = None
     cwd: Path = Path(".")
@@ -34,7 +38,9 @@ class Script:
             wrapper_tokens = to_tokens(self.shell)
             # If the main command is provided as a list, join it into one token;
             # otherwise, use it as-is.
-            main_command = self.args if isinstance(self.args, str) else " ".join(self.args)
+            main_command = (
+                self.args if isinstance(self.args, str) else " ".join(self.args)
+            )
             tokens = wrapper_tokens + [main_command]
         else:
             tokens = to_tokens(self.args)
@@ -45,7 +51,11 @@ class Script:
         if needs_shell_fallback(tokens):
             # When fallback is needed, join the tokens into a command string
             # and then wrap them with the default shell prefix.
-            command_str = shlex.join(tokens) if not IS_WINDOWS else subprocess.list2cmdline(tokens)
+            command_str = (
+                shlex.join(tokens)
+                if not IS_WINDOWS
+                else subprocess.list2cmdline(tokens)
+            )
             tokens = default_shell_prefix(command_str)
         return shlex.join(tokens) if not IS_WINDOWS else subprocess.list2cmdline(tokens)
 
@@ -55,11 +65,17 @@ class Script:
             raise FileNotFoundError(f"Working directory '{resolved}' does not exist.")
         return resolved
 
-    def prepare_subprocess_args(self, base_dir: Path, extra_args: Optional[List[str]] = None) -> Dict[str, Any]:
+    def prepare_subprocess_args(
+        self, base_dir: Path, extra_args: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         command = self.assemble_command()
         if extra_args:
             extra_tokens = to_tokens(extra_args)
-            extra_str = shlex.join(extra_tokens) if not IS_WINDOWS else subprocess.list2cmdline(extra_tokens)
+            extra_str = (
+                shlex.join(extra_tokens)
+                if not IS_WINDOWS
+                else subprocess.list2cmdline(extra_tokens)
+            )
             command += " " + extra_str
         env = {**os.environ, **self.env} if self.env else None
         return {
@@ -68,6 +84,15 @@ class Script:
             "cwd": str(self.resolve_cwd(base_dir)),
             "env": env,
             **self.kwargs,
+        }
+
+    def __dict__(self):
+        return {
+            "args": self.args,
+            "shell": self.shell,
+            "cwd": str(self.cwd),
+            "env": self.env,
+            "kwargs": self.kwargs,
         }
 
 # ---------------------------
@@ -84,6 +109,7 @@ class ToolPackage:
     install_date: str
     last_update: str
 
+
 # ---------------------------
 # PackageBuilder Class
 # ---------------------------
@@ -92,6 +118,7 @@ class PackageBuilder:
     Processes a package directory by locating its manifest,
     validating it, and building ToolPackage and Script objects.
     """
+
     def __init__(self, package_path: Path):
         self.package_path = package_path
         self.manifest_path = self.find_manifest(package_path)
@@ -102,7 +129,7 @@ class PackageBuilder:
         # Log all files in the package directory for debugging.
         for f in package_path.iterdir():
             logging.getLogger(__name__).info("Found file in package: %s", f.name)
-            
+
         manifest_path = find_file_type("manifest", package_path)
         if not manifest_path:
             raise FileNotFoundError("Manifest file not found in the package directory.")
@@ -140,6 +167,7 @@ class PackageBuilder:
             last_update=now(),
         )
 
+
 # ---------------------------
 # PackageManager Class
 # ---------------------------
@@ -149,7 +177,8 @@ class PackageManager:
     It can import, list, remove, update packages,
     and run their scripts.
     """
-    def __init__(self, registry):
+
+    def __init__(self, registry: Registry):
         """
         :param registry: An instance of the ORM-based Registry.
         """
@@ -160,26 +189,40 @@ class PackageManager:
         """
         Copies the package folder to the registry's tools folder.
         """
-        registry_tools_dir = self.registry.db_path / "tools"
+        registry_tools_dir = self.registry.registry_path / "tools"
         registry_tools_dir.mkdir(parents=True, exist_ok=True)
         registry_package_dir = registry_tools_dir / package_dir.name
         if registry_package_dir.exists():
+            self.logger.info("Removing existing package directory: %s", registry_package_dir)
             shutil.rmtree(registry_package_dir)
+        self.logger.info("Copying package directory '%s' to '%s'", package_dir, registry_package_dir)
         shutil.copytree(package_dir, registry_package_dir)
+        self.logger.info("Package directory copied successfully.")
         return registry_package_dir
 
-    def import_package(self, manifest_path: Path):
+    def delete_package_from_registry(self, registry_package_dir: Path):
+        """
+        Deletes the package folder from the registry's tools folder.
+        """
+        if registry_package_dir.exists():
+            shutil.rmtree(registry_package_dir)
+            self.logger.info("Package removed successfully.")
+        else:
+            self.logger.error("Package directory does not exist: %s", registry_package_dir)
+
+    def import_package(self, manifest_path: Path, collection: str = "default"):
         package_dir = manifest_path.parent
         registry_package_dir = self.move_package_to_registry(package_dir)
         package = PackageBuilder(registry_package_dir).build_package()
         try:
             # Attempt to add package. If it fails due to IntegrityError, update it.
             self.registry.add_package(
-                package.command,
-                package.name,
-                package.description,
-                str(package.location),
-                package.dependencies,
+                command=package.command,
+                name=package.name,
+                description=package.description,
+                location=str(package.location),
+                dependencies=package.dependencies,
+                collection=collection,
             )
             self.logger.info("Package added successfully.")
         except Exception as e:
@@ -192,25 +235,33 @@ class PackageManager:
                 package.description,
                 str(package.location),
                 package.dependencies,
+                collection,
             )
 
         for script_name, script in package.scripts.items():
             try:
-                self.registry.add_script(package.command, script_name, script)
+                self.registry.add_script(package.command, script_name, script.__dict__())
             except Exception as e:
                 self.logger.error("Error adding script '%s': %s", script_name, e)
-                
-    def list_packages(self) -> List[str]:
-        return self.registry.list_packages()
 
     def remove_package(self, command: str):
         """
         Removes a package and its associated scripts from the registry.
         """
-        self.registry.remove_package(command)
-        script_names = self.registry.list_scripts(command)
-        for script_name in script_names:
-            self.registry.remove_script(command, script_name)
+        self.logger.info("Removing package: %s", command)
+        location = self.registry.get_package_location(command)
+        if not location:
+            self.logger.error("Package location not found for command: %s", command)
+            return
+        try:
+            self.registry.remove_package(command)
+            script_names = [s.script for s in self.registry.list_scripts(command)]
+            for script_name in script_names:
+                self.registry.remove_script(command, script_name)
+            self.delete_package_from_registry(Path(location))
+            self.logger.info("Package '%s' removed successfully.", command)
+        except Exception as e:
+            self.logger.error("Error removing package '%s': %s", command, e)
 
     def show_package(self, command: str) -> Optional[ToolPackage]:
         pkg_dict = self.registry.get_package(command)
@@ -218,7 +269,7 @@ class PackageManager:
             self.logger.error("Package not found: %s", command)
             return None
 
-        script_names = self.registry.list_scripts(command)
+        script_names = [s.script for s in self.registry.list_scripts(command)]
         scripts = {}
         for script_name in script_names:
             script = self.registry.get_script(command, script_name)
@@ -236,10 +287,18 @@ class PackageManager:
             last_update=pkg_dict["last_update"],
         )
 
-    def run_script(self, command: str, script_name: str, base_dir: Path, extra_args: List[str] = None):
+    def run_script(
+        self,
+        command: str,
+        script_name: str,
+        base_dir: Path,
+        extra_args: List[str] = None,
+    ):
         script = self.registry.get_script(command, script_name)
         if not script:
-            self.logger.error("Script '%s' not found in package '%s'.", script_name, command)
+            self.logger.error(
+                "Script '%s' not found in package '%s'.", script_name, command
+            )
             return
         try:
             args = script.prepare_subprocess_args(base_dir, extra_args=extra_args)

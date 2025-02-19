@@ -1,15 +1,16 @@
 # --- Registry Class ---
 
 from datetime import datetime
+import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 import json
 
-from sqlalchemy import create_engine, Column, String, Text, DateTime
+from sqlalchemy import Boolean, create_engine, Column, String, Text, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
-from dataclasses import dataclass, field
 
-from package_manager import Script
+# Configure a basic logger (logs at INFO level by default)
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # ORM Models
@@ -37,6 +38,8 @@ class PackageModel(Base):
     description = Column(Text, nullable=True)
     location = Column(Text, nullable=False)
     dependencies = Column(Text, nullable=True)
+    collection = Column(String, nullable=True)
+    active = Column(Boolean, nullable=False, default=True)
     install_date = Column(DateTime, nullable=False)
     last_update = Column(DateTime, nullable=False)
 
@@ -46,37 +49,39 @@ class PackageModel(Base):
 # ---------------------------------------------------------------------------
 
 class Registry:
-    def __init__(self, db_path: Path):
+    def __init__(self, registry_path: Path):
         # Ensure the registry directory exists.
-        db_path.mkdir(parents=True, exist_ok=True)
-        self.db_path = db_path
+        registry_path.mkdir(parents=True, exist_ok=True)
+        self.registry_path = registry_path
         # Convert the path to an absolute path to avoid issues on some systems.
-        db_file = (db_path / "registry.db").resolve()
+        db_file = (registry_path / "registry.db").resolve()
         db_uri = f"sqlite:///{db_file}"
         self.engine = create_engine(db_uri, echo=False, future=True)
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine, future=True)
+        logger.info(f"Registry initialized with database at {db_file}")
 
     # -----------------------
     # Script-related methods
     # -----------------------
 
-    def add_script(self, command: str, script_name: str, script: Script):
+    def add_script(self, command: str, script_name: str, script: dict):
         """
         Add a new script to the registry.
         """
+        logger.info(f"Adding script '{script_name}' for command '{command}' to the registry.")
         session = self.Session()
         try:
             # If script.args is a list, store it as JSON. Otherwise, store the string.
-            args_value = json.dumps(script.args) if isinstance(script.args, list) else script.args
+            args_value = json.dumps(script["args"]) if isinstance(script["args"], list) else script["args"]
             new_script = ScriptModel(
                 command=command,
                 script_name=script_name,
                 args=args_value,
-                cwd=str(script.cwd),
-                env=json.dumps(script.env) if script.env else None,
-                shell=script.shell,
-                kwargs=json.dumps(script.kwargs) if script.kwargs else None,
+                cwd=str(script["cwd"]),
+                env=json.dumps(script["env"]) if script["env"] else None,
+                shell=script["shell"],
+                kwargs=json.dumps(script["kwargs"]) if script["kwargs"] else None,
             )
             session.add(new_script)
             session.commit()
@@ -86,41 +91,54 @@ class Registry:
         finally:
             session.close()
 
-    def get_script(self, command: str, script_name: str) -> Optional[Script]:
+    def get_script(self, command: str, script_name: str) -> Optional[dict]:
         """
         Retrieve a script from the registry and convert it into a Script instance.
         """
+        logger.info(f"Retrieving script '{script_name}' for command '{command}' from the registry.")
         session = self.Session()
         try:
             result = session.query(ScriptModel).filter_by(
                 command=command, script_name=script_name
             ).first()
             if result:
+                logger.info(f"Script '{script_name}' found in the registry.")
                 # Try to load args as JSON; if it fails, assume it is a string.
                 try:
                     parsed_args = json.loads(result.args)
                 except json.JSONDecodeError:
                     parsed_args = result.args
 
-                return Script(
-                    args=parsed_args,
-                    shell=result.shell,
-                    cwd=Path(result.cwd),
-                    env=json.loads(result.env) if result.env else {},
-                    kwargs=json.loads(result.kwargs) if result.kwargs else {},
-                )
+                return {
+                    "args": parsed_args,
+                    "shell": result.shell,
+                    "cwd": Path(result.cwd),
+                    "env": json.loads(result.env) if result.env else {},
+                    "kwargs": json.loads(result.kwargs) if result.kwargs else {},
+                }
             return None
         finally:
             session.close()
 
-    def list_scripts(self, command: str) -> List[str]:
+    def list_scripts(self, command: str) -> List[Any]:
         """
-        List all script names for a given package (identified by its command).
+        List all script for a given package (identified by its command).
         """
         session = self.Session()
         try:
-            scripts = session.query(ScriptModel).filter_by(command=command).all()
-            return [s.script_name for s in scripts]
+            result = session.query(ScriptModel).filter_by(command=command).all()
+            return [
+                {
+                    "command": command,	
+                    "script": script.script_name,
+                    "args": json.loads(script.args) if script.args else [],
+                    "shell": script.shell,
+                    "cwd": Path(script.cwd),
+                    "env": json.loads(script.env) if script.env else {},
+                    "kwargs": json.loads(script.kwargs) if script.kwargs else {},
+                }
+                for script in result
+            ]
         finally:
             session.close()
 
@@ -142,7 +160,7 @@ class Registry:
         finally:
             session.close()
 
-    def update_script(self, command: str, script_name: str, script: Script):
+    def update_script(self, command: str, script_name: str, script: dict):
         """
         Update an existing script in the registry.
         """
@@ -152,11 +170,11 @@ class Registry:
                 command=command, script_name=script_name
             ).first()
             if instance:
-                instance.args = json.dumps(script.args) if isinstance(script.args, list) else script.args
-                instance.cwd = str(script.cwd)
-                instance.env = json.dumps(script.env) if script.env else None
-                instance.shell = script.shell
-                instance.kwargs = json.dumps(script.kwargs) if script.kwargs else None
+                instance.args = json.dumps(script["args"]) if isinstance(script["args"], list) else script["args"]
+                instance.cwd = str(script["cwd"])
+                instance.env = json.dumps(script["env"]) if script["env"] else None
+                instance.shell = script["shell"]
+                instance.kwargs = json.dumps(script["kwargs"]) if script["kwargs"] else None
                 session.commit()
             else:
                 raise ValueError("Script not found")
@@ -177,6 +195,7 @@ class Registry:
         description: str,
         location: str,
         dependencies: Dict[str, Any],
+        collection: Optional[str] = "default",
     ):
         """
         Add a new package entry to the registry.
@@ -190,6 +209,8 @@ class Registry:
                 description=description,
                 location=location,
                 dependencies=json.dumps(dependencies) if dependencies else None,
+                collection=collection,
+                active=True,
                 install_date=now_dt,
                 last_update=now_dt,
             )
@@ -215,6 +236,8 @@ class Registry:
                     "description": package.description,
                     "location": package.location,
                     "dependencies": json.loads(package.dependencies) if package.dependencies else {},
+                    "collection": package.collection,
+                    "active": package.active,
                     "install_date": package.install_date.isoformat(),
                     "last_update": package.last_update.isoformat(),
                 }
@@ -222,14 +245,48 @@ class Registry:
         finally:
             session.close()
 
-    def list_packages(self) -> List[str]:
+    def list_packages(
+        self, 
+        command: Optional[str] = None,
+        name: Optional[str] = None, 
+        description: Optional[str] = None, 
+        location: Optional[str] = None,
+        collection: Optional[str] = None, 
+        active: Optional[bool] = None
+    ) -> List[Dict[str, Any]]:
         """
-        List all package commands stored in the registry.
+        List all packages stored in the registry. Optionally filter by collection, name, description, and location.
         """
         session = self.Session()
         try:
-            packages = session.query(PackageModel).all()
-            return [p.command for p in packages]
+            query = session.query(PackageModel)
+            if command:
+                query = query.filter_by(command=command)
+            if name:
+                query = query.filter(PackageModel.name.like(f"%{name}%"))
+            if description:
+                query = query.filter(PackageModel.description.like(f"%{description}%"))
+            if location:
+                query = query.filter(PackageModel.location.like(f"%{location}%"))
+            if collection:
+                query = query.filter_by(collection=collection)
+            if active is not None:
+                query = query.filter_by(active=active)
+            packages = query.all()
+            return [
+                {
+                    "command": p.command,
+                    "name": p.name,
+                    "description": p.description,
+                    "location": p.location,
+                    "dependencies": json.loads(p.dependencies) if p.dependencies else {},
+                    "collection": p.collection,
+                    "active": p.active,
+                    "install_date": p.install_date.isoformat(),
+                    "last_update": p.last_update.isoformat(),
+                }
+                for p in packages
+            ]
         finally:
             session.close()
 
@@ -256,6 +313,7 @@ class Registry:
         description: str,
         location: str,
         dependencies: Dict[str, Any],
+        active: bool = True
     ):
         """
         Update an existing package entry.
@@ -268,6 +326,7 @@ class Registry:
                 package.description = description
                 package.location = location
                 package.dependencies = json.dumps(dependencies) if dependencies else None
+                package.active = active
                 package.last_update = datetime.now()
                 session.commit()
             else:
@@ -275,5 +334,54 @@ class Registry:
         except Exception as e:
             session.rollback()
             raise e
+        finally:
+            session.close()
+
+    def deactivate_package(self, command: str):
+        """
+        Deactivate a package without removing it from the registry.
+        """
+        session = self.Session()
+        try:
+            package = session.query(PackageModel).filter_by(command=command).first()
+            if package:
+                package.active = False
+                session.commit()
+            else:
+                raise ValueError("Package not found")
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def activate_package(self, command: str):
+        """
+        Activate a package that was previously deactivated.
+        """
+        session = self.Session()
+        try:
+            package = session.query(PackageModel).filter_by(command=command).first()
+            if package:
+                package.active = True
+                session.commit()
+            else:
+                raise ValueError("Package not found")
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def get_package_location(self, command: str) -> Optional[str]:
+        """
+        Retrieve the location of a package.
+        """
+        session = self.Session()
+        try:
+            package = session.query(PackageModel).filter_by(command=command).first()
+            if package:
+                return package.location
+            return None
         finally:
             session.close()
