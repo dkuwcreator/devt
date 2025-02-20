@@ -4,3 +4,5 @@ command: sample_tool
 scripts:
   run_checks: "echo Running checks..."
   install: "echo Installing..."
+  windows:
+    hello: .\hello.ps1

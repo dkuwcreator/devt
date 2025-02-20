@@ -922,200 +922,200 @@ def show_tool_info(
 # #         )
 
 
-# @app.command("do")
-# def do(
-#     tool_name: str = typer.Argument(..., help="The tool to run the script for."),
-#     script_name: str = typer.Argument(..., help="The name of the script to run."),
-#     additional_args: Annotated[Optional[List[str]], typer.Argument()] = None,
-# ):
-#     """
-#     Run a specified script for the given tool.
+@app.command("do")
+def do(
+    tool_name: str = typer.Argument(..., help="The tool to run the script for."),
+    script_name: str = typer.Argument(..., help="The name of the script to run."),
+    additional_args: Annotated[Optional[List[str]], typer.Argument()] = None,
+):
+    """
+    Run a specified script for the given tool.
 
-#     The tool is looked up first in the workspace registry, then in the user registry.
-#     """
-#     # TODO: BEGIN - (needs refactoring) This block should find the tool in the registry, sync if needed, and produce the base_dir and scripts_dict.
-#     # Lookup the tool from the registries.
-#     try:
-#         tool, registry_dir = get_tool(tool_name)
-#     except ValueError as ve:
-#         raise typer.Exit(str(ve))
+    The tool is looked up first in the workspace registry, then in the user registry.
+    """
+    # TODO: BEGIN - (needs refactoring) This block should find the tool in the registry, sync if needed, and produce the base_dir and scripts_dict.
+    # Lookup the tool from the registries.
+    try:
+        tool, registry_dir = get_tool(tool_name)
+    except ValueError as ve:
+        raise typer.Exit(str(ve))
 
-#     # If auto_sync is enabled, update the repository.
-#     if tool.get("auto_sync", False):
-#         _sync_one_repo(
-#             registry_manager=RegistryManager(registry_dir),
-#             repo_name=tool.get("dir", ""),
-#             raise_on_missing=False,
-#         )
-#         try:
-#             tool, registry_dir = get_tool(tool_name)
-#         except ValueError as ve:
-#             raise typer.Exit(str(ve))
+    # If auto_sync is enabled, update the repository.
+    if tool.get("auto_sync", False):
+        _sync_one_repo(
+            registry_manager=RegistryManager(registry_dir),
+            repo_name=tool.get("dir", ""),
+            raise_on_missing=False,
+        )
+        try:
+            tool, registry_dir = get_tool(tool_name)
+        except ValueError as ve:
+            raise typer.Exit(str(ve))
 
-#     manifest_path = registry_dir / tool.get("location")
+    manifest_path = registry_dir / tool.get("location")
 
-#     base_dir, scripts_dict = get_execute_args(manifest_path)
-#     # TODO: END
+    base_dir, scripts_dict = get_execute_args(manifest_path)
+    # TODO: END
 
-#     executor = ManifestRunner(base_dir, scripts_dict)
+    executor = ManifestRunner(base_dir, scripts_dict)
 
-#     # Execute a script synchronously.
-#     try:
-#         executor.run_shell_fallback(script_name, additional_args)
-#     except Exception as e:
-#         print(f"Execution error: {e}")
-
-
-# @app.command()
-# def run(
-#     script_name: str = typer.Argument(..., help="The name of the script to run."),
-#     additional_args: Annotated[Optional[List[str]], typer.Argument()] = None,
-# ):
-#     """
-#     Run a specified script for the given tool.
-#     """
-#     # Check if "workspace" .json | .cjson | .yaml | .yml exists in the current directory.
-#     workspace_file = find_file_type("workspace")
-#     if not workspace_file:
-#         typer.echo("No workspace file found in the current directory.")
-#         typer.echo("Please run 'devt init' to create a workspace file.")
-#         raise typer.Exit(code=1)
-
-#     base_dir, scripts_dict = get_execute_args(workspace_file)
-
-#     executor = ManifestRunner(base_dir, scripts_dict)
-
-#     # Execute a script synchronously.
-#     try:
-#         executor.run_shell_fallback(script_name, additional_args)
-#     except Exception as e:
-#         print(f"Execution error: {e}")
+    # Execute a script synchronously.
+    try:
+        executor.run_shell_fallback(script_name, additional_args)
+    except Exception as e:
+        print(f"Execution error: {e}")
 
 
-# @app.command()
-# def install(
-#     tools: List[str] = typer.Argument(..., help="List of tool names to install"),
-# ):
-#     """
-#     Install the specified tools.
-#     """
-#     for tool in tools:
-#         do(tool, "install")
+@app.command()
+def run(
+    script_name: str = typer.Argument(..., help="The name of the script to run."),
+    additional_args: Annotated[Optional[List[str]], typer.Argument()] = None,
+):
+    """
+    Run a specified script for the given tool.
+    """
+    # Check if "workspace" .json | .cjson | .yaml | .yml exists in the current directory.
+    workspace_file = find_file_type("workspace")
+    if not workspace_file:
+        typer.echo("No workspace file found in the current directory.")
+        typer.echo("Please run 'devt init' to create a workspace file.")
+        raise typer.Exit(code=1)
+
+    base_dir, scripts_dict = get_execute_args(workspace_file)
+
+    executor = ManifestRunner(base_dir, scripts_dict)
+
+    # Execute a script synchronously.
+    try:
+        executor.run_shell_fallback(script_name, additional_args)
+    except Exception as e:
+        print(f"Execution error: {e}")
 
 
-# @app.command()
-# def uninstall(
-#     tools: List[str] = typer.Argument(..., help="List of tool names to uninstall"),
-# ):
-#     """
-#     Uninstall the specified tools.
-#     """
-#     for tool in tools:
-#         do(tool, "uninstall")
+@app.command()
+def install(
+    tools: List[str] = typer.Argument(..., help="List of tool names to install"),
+):
+    """
+    Install the specified tools.
+    """
+    for tool in tools:
+        do(tool, "install")
 
 
-# @app.command()
-# def upgrade(
-#     tools: List[str] = typer.Argument(..., help="List of tool names to upgrade"),
-# ):
-#     """
-#     Upgrade the specified tools.
-#     """
-#     for tool in tools:
-#         do(tool, "upgrade")
+@app.command()
+def uninstall(
+    tools: List[str] = typer.Argument(..., help="List of tool names to uninstall"),
+):
+    """
+    Uninstall the specified tools.
+    """
+    for tool in tools:
+        do(tool, "uninstall")
 
 
-# @app.command()
-# def version(
-#     tools: List[str] = typer.Argument(
-#         ..., help="List of tool names to display the version for"
-#     ),
-# ):
-#     """
-#     Display the version of the specified tools.
-#     """
-#     for tool in tools:
-#         do(tool, "version")
+@app.command()
+def upgrade(
+    tools: List[str] = typer.Argument(..., help="List of tool names to upgrade"),
+):
+    """
+    Upgrade the specified tools.
+    """
+    for tool in tools:
+        do(tool, "upgrade")
 
 
-# @app.command()
-# def test(
-#     tools: List[str] = typer.Argument(
-#         ..., help="List of tool names to run the test for"
-#     ),
-# ):
-#     """
-#     Run the test script for the specified tools.
-#     """
-#     for tool in tools:
-#         do(tool, "test")
+@app.command()
+def version(
+    tools: List[str] = typer.Argument(
+        ..., help="List of tool names to display the version for"
+    ),
+):
+    """
+    Display the version of the specified tools.
+    """
+    for tool in tools:
+        do(tool, "version")
 
 
-# # ---------------------------------------------------------------------------
-# # App Meta Commands (Version, Upgrade)
-# # ---------------------------------------------------------------------------
-# # TODO: BEGIN - The functionality of this block should be moved to a separate file (e.g. meta.py) and imported here.
-# def check_for_update(current_version):
-#     try:
-#         response = requests.get(
-#             "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
-#         )
-#         response.raise_for_status()
-#         latest_version = response.json()["tag_name"]
-#         logger.info(f"Latest version: {latest_version}")
-#         return latest_version if latest_version != current_version else None
-#     except requests.RequestException as e:
-#         logger.error(f"Failed to check for updates: {e}")
-#         return None
+@app.command()
+def test(
+    tools: List[str] = typer.Argument(
+        ..., help="List of tool names to run the test for"
+    ),
+):
+    """
+    Run the test script for the specified tools.
+    """
+    for tool in tools:
+        do(tool, "test")
 
 
-# def download_latest_version(url, download_path):
-#     try:
-#         response = requests.get(url, stream=True)
-#         response.raise_for_status()
-#         with open(download_path, "wb") as file:
-#             shutil.copyfileobj(response.raw, file)
-#         logger.info(f"Downloaded latest version to {download_path}")
-#     except requests.RequestException as e:
-#         logger.error(f"Failed to download the latest version: {e}")
-#         raise
+# ---------------------------------------------------------------------------
+# App Meta Commands (Version, Upgrade)
+# ---------------------------------------------------------------------------
+# TODO: BEGIN - The functionality of this block should be moved to a separate file (e.g. meta.py) and imported here.
+def check_for_update(current_version):
+    try:
+        response = requests.get(
+            "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
+        )
+        response.raise_for_status()
+        latest_version = response.json()["tag_name"]
+        logger.info(f"Latest version: {latest_version}")
+        return latest_version if latest_version != current_version else None
+    except requests.RequestException as e:
+        logger.error(f"Failed to check for updates: {e}")
+        return None
 
 
-# @app.command()
-# def my_upgrade():
-#     import sys
-
-#     current_version = __version__
-#     typer.echo(f"Current version: {current_version}")
-#     typer.echo("Checking for updates...")
-#     latest_version = check_for_update(current_version)
-
-#     if latest_version:
-#         typer.echo(f"New version available: {latest_version}. Downloading...")
-#         download_url = f"https://github.com/dkuwcreator/devt/releases/download/{latest_version}/devt.exe"
-#         temp_folder = Path(os.getenv("TEMP", "/tmp"))
-#         download_path = temp_folder / f"devt_{latest_version}.exe"
-#         download_latest_version(download_url, download_path)
-
-#         # Replace the current version with the new one
-#         current_executable = sys.executable
-#         try:
-#             logger.info("Replacing the current executable with the new version...")
-#             os.replace(download_path, current_executable)
-#             typer.echo("Upgrade complete!")
-#         except Exception as e:
-#             logger.error("Failed to replace the current executable: %s", e)
-#             typer.echo("Upgrade failed. Please try again.")
-#     else:
-#         typer.echo("You are already using the latest version.")
+def download_latest_version(url, download_path):
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        with open(download_path, "wb") as file:
+            shutil.copyfileobj(response.raw, file)
+        logger.info(f"Downloaded latest version to {download_path}")
+    except requests.RequestException as e:
+        logger.error(f"Failed to download the latest version: {e}")
+        raise
 
 
-# @app.command()
-# def my_version():
-#     typer.echo(f"Version: {__version__}")
+@app.command()
+def my_upgrade():
+    import sys
+
+    current_version = __version__
+    typer.echo(f"Current version: {current_version}")
+    typer.echo("Checking for updates...")
+    latest_version = check_for_update(current_version)
+
+    if latest_version:
+        typer.echo(f"New version available: {latest_version}. Downloading...")
+        download_url = f"https://github.com/dkuwcreator/devt/releases/download/{latest_version}/devt.exe"
+        temp_folder = Path(os.getenv("TEMP", "/tmp"))
+        download_path = temp_folder / f"devt_{latest_version}.exe"
+        download_latest_version(download_url, download_path)
+
+        # Replace the current version with the new one
+        current_executable = sys.executable
+        try:
+            logger.info("Replacing the current executable with the new version...")
+            os.replace(download_path, current_executable)
+            typer.echo("Upgrade complete!")
+        except Exception as e:
+            logger.error("Failed to replace the current executable: %s", e)
+            typer.echo("Upgrade failed. Please try again.")
+    else:
+        typer.echo("You are already using the latest version.")
 
 
-# # TODO: END
+@app.command()
+def my_version():
+    typer.echo(f"Version: {__version__}")
+
+
+# TODO: END
 
 
 # ------------------------------------------------------------------------------
