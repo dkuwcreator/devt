@@ -1,8 +1,10 @@
 name: My Workspace
 description: This is my workspace. There are many like it, but this one is mine.
 dependencies: {}
+command: workspace
 scripts:
-  workspace_test: echo This is a test of the workspace!
+  install: pip install -r requirements.txt
+  workspace_test: echo "This is a test of the workspace!"
   requirements: pip install -r requirements.txt
   deactivate: deactivate
   package-upgrade: pip --disable-pip-version-check list --outdated --format=json | ConvertFrom-Json | ForEach-Object { pip install -U $_.name }; pip freeze > requirements.txt

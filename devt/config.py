@@ -60,12 +60,13 @@ def setup_environment():
     set_user_environment_var(ENV_USER_APP_DIR, str(USER_APP_DIR))
     logger.info("Environment variables set successfully")
 
+
 # Dynamically extract allowed arguments for subprocess.run() and subprocess.Popen()
 RUN_KEYS = set(inspect.signature(subprocess.run).parameters.keys())
 POPEN_KEYS = set(inspect.signature(subprocess.Popen).parameters.keys())
 # Combine both to get a full set of allowed arguments
 SUBPROCESS_ALLOWED_KEYS = RUN_KEYS | POPEN_KEYS
-  
+
 # def list_executables_in_path():
 #     executables = []
 #     for path_dir in os.environ.get("PATH", "").split(os.pathsep):

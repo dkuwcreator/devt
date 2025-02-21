@@ -37,15 +37,22 @@ def save_json(file_path: Path, data: dict, indent: Union[int, None] = 2) -> None
         logger.error(f"Error writing JSON to {file_path}: {e}")
 
 
-def find_file_type(file_type: str, current_dir: Path = Path.cwd()) -> Optional[Path]:
+def find_file_type(prefix: str, current_dir: Path = Path.cwd()) -> Optional[Path]:
     """
-    Check if a workspace file (.json, .cjson, .yaml, .yml) exists in the current directory.
-    Returns the path to the workspace file if found, otherwise None.
+    Search for a file with the specified prefix and common file extensions (.json, .cjson, .yaml, .yml)
+    in the provided directory.
+    Returns the path to the file if found, otherwise None.
     """
+    logger.info("Starting search in %s for file with prefix '%s'.", current_dir, prefix)
     for ext in ["yaml", "yml", "json", "cjson"]:
-        workspace_file = current_dir / f"{file_type}.{ext}"
-        if workspace_file.exists():
-            return workspace_file
+        candidate_file = current_dir / f"{prefix}.{ext}"
+        logger.debug("Checking candidate file: %s", candidate_file)
+        if candidate_file.exists():
+            logger.info("File found: %s", candidate_file)
+            return candidate_file
+        else:
+            logger.debug("File does not exist: %s", candidate_file)
+    logger.warning("No file found for prefix '%s' in directory %s.", prefix, current_dir)
     return None
 
 

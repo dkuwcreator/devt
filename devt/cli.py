@@ -1,50 +1,56 @@
-# devt/cli.py
+#!/usr/bin/env python
+"""
+devt/cli.py
+
+DevT: A CLI tool for managing development tool packages.
+This file defines subcommands for repository management, tool management,
+script execution, project-level controls, and meta commands.
+"""
+
 import json
+import logging
 import shutil
-import os
 from pathlib import Path
 from typing import List, Optional
-import zipfile
-import requests
+import yaml
 import typer
-from typing_extensions import Annotated
 
-from devt import __version__
-
-# Import functions and constants from our modules
+# Import support modules and classes
+from devt.utils import find_file_type
+from devt.logger_manager import configure_formatter, configure_logging
+from devt.registry_manager import Registry
+from devt.package_manager import PackageBuilder, PackageManager, Script
+from devt.repo_manager import RepoManager
 from devt.config import (
-    REGISTRY_FILE_NAME,
-    USER_REGISTRY_DIR,
+    USER_APP_DIR,
+    WORKSPACE_APP_DIR,
     WORKSPACE_REGISTRY_DIR,
+    USER_REGISTRY_DIR,
     setup_environment,
 )
-from devt.logger_manager import configure_formatter, logger, configure_logging
-from devt.package_manager import PackageBuilder, PackageManager
-from devt.utils import (
-    find_file_type,
-    find_recursive_manifest_files,
-    get_execute_args,
-    load_json,
-    save_json,
-)
-from devt.registry_manager import Registry
-from devt.executor import ManifestRunner
+from devt.package_manager import PackageManager
+from devt import (
+    __version__,
+)  # Assume __version__ is defined in devt_cli/__init__.py
 
-app = typer.Typer(help="DevT: A tool for managing development tool packages.")
+logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Import the RegistryManager class and instantiate it
-# ---------------------------------------------------------------------------
-user_registry = Registry(USER_REGISTRY_DIR)
-workspace_registry = Registry(WORKSPACE_REGISTRY_DIR)
+# Initialize Typer main app and sub-apps
+app = typer.Typer(help="DevT: A CLI tool for managing development tool packages.")
+repo_app = typer.Typer(help="Repository management commands")
+tool_app = typer.Typer(help="Tool management commands")  # formerly package_app
+project_app = typer.Typer(help="Project-level commands")
+self_app = typer.Typer(help="DevT self management commands")
 
-registry_managers = {
-    "user": user_registry,
-    "workspace": workspace_registry,
-}
+repo_manager = RepoManager(USER_REGISTRY_DIR)
 
 
-# Define a callback to set global log level or other config
+# Utility: select registry by scope option (default: user)
+def get_registry_dir(scope: str) -> Path:
+    return WORKSPACE_REGISTRY_DIR if scope.lower() == "workspace" else USER_REGISTRY_DIR
+
+
+# Define a callback to set runtime config settings
 @app.callback()
 def main(
     ctx: typer.Context,
@@ -66,1071 +72,1146 @@ def main(
 ):
     """
     Global callback to configure logging before any commands run.
+    Loads and persists configuration settings between sessions.
     """
-    if scope not in registry_managers:
-        raise typer.BadParameter(
-            f"Invalid scope: {scope}. Must be 'user' or 'workspace'."
-        )
 
-    # Set the global registry manager based on the scope
-    ctx.obj = {"registry_manager": registry_managers[scope]}
+    # Determine the config file location
+    config_file = USER_APP_DIR / "config.json"
 
-    # Call the configure_logging function
+    # Load saved configs if available and override defaults
+    if config_file.exists():
+        try:
+            saved_config = json.loads(config_file.read_text())
+            # Override options if saved values exist
+            scope = saved_config.get("scope", scope)
+            log_level = saved_config.get("log_level", log_level)
+            log_format = saved_config.get("log_format", log_format)
+        except Exception as e:
+            typer.echo(f"Error loading config file: {e}")
+
+    # Set up the environment and directories
+    setup_environment()
+
+    # Set scope-specific registry and tools directory
+    registry_dir = get_registry_dir(scope)
+    registry_manager = Registry(registry_dir)
+    pkg_manager = PackageManager(registry_dir / "tools")
+
+    # Set the global registry and pkg_manager for use in subcommands
+    ctx.obj = {
+        "scope": scope,
+        "registry": registry_manager,
+        "pkg_manager": pkg_manager,
+    }
+
+    # Configure logging settings
     configure_logging(log_level)
-
-    # Choose the formatter based on the log format
     configure_formatter(log_format)
 
-    # If you want to prevent "No command provided" confusion, you can handle
-    # the case where no subcommand was invoked:
+    # Persist runtime configuration settings for future sessions
+    config = {
+        "scope": scope,
+        "log_level": log_level,
+        "log_format": log_format,
+    }
+
+    # If no subcommand is provided, show help
     if not ctx.invoked_subcommand:
-        # For example, show help or a message:
         typer.echo("No command provided. Use --help for usage.")
         raise typer.Exit()
 
 
-## ---------------------------------------------------------------------------
-## Managing Local Package functions
-## ---------------------------------------------------------------------------
-
-
-def export_package(package_location: Path, output_path: Path):
-    """
-    Export a package folder as a zip archive.
-    """
-    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for file in package_location.rglob("*"):
-            if file.is_file():
-                zf.write(file, file.relative_to(package_location))
-    return output_path
-
-
-def move_package(
-    pm: PackageManager,
-    source_registry: Registry,
-    target_registry: Registry,
-    package_command: str,
+# Separate command to persist configuration settings for future sessions
+@app.command("config")
+def set_config(
+    scope: Optional[str] = typer.Option(
+        None,
+        help="Persisted scope for future sessions: user or workspace.",
+    ),
+    log_level: Optional[str] = typer.Option(
+        None,
+        help="Persisted log level for future sessions (DEBUG, INFO, WARNING, ERROR).",
+    ),
+    log_format: Optional[str] = typer.Option(
+        None,
+        help="Persisted log format for future sessions: default or detailed.",
+    ),
 ):
     """
-    Move a package from one registry (source) to another (target).
-
-    This function copies the package folder from the source registry into the target registry,
-    re-reads the package (and its scripts) from the copied folder, adds it to the target registry,
-    and then removes it from the source registry.
+    Persists configuration settings to be used in future sessions.
+    Only the options provided will be updated.
     """
-    package = source_registry.get_package(package_command)
-    if not package:
-        logger.error("Package '%s' not found in the source registry.", package_command)
-        return False
+    config_file = USER_APP_DIR / "config.json"
+    current_config = {}
+    if config_file.exists():
+        try:
+            current_config = json.loads(config_file.read_text())
+        except Exception as e:
+            typer.echo(f"Error reading config file: {e}")
 
-    target_tools_dir = target_registry.registry_path / "tools"
-    target_tools_dir.mkdir(parents=True, exist_ok=True)
-    current_location = Path(package["location"])
-    target_location = target_tools_dir / current_location.name
+    if scope:
+        current_config["scope"] = scope
+    if log_level:
+        current_config["log_level"] = log_level
+    if log_format:
+        current_config["log_format"] = log_format
 
     try:
-        shutil.copytree(current_location, target_location)
+        config_file.write_text(json.dumps(current_config, indent=4))
+        typer.echo("Configuration settings have been persisted for future sessions.")
     except Exception as e:
-        logger.error("Error copying package folder: %s", e)
-        return False
+        typer.echo(f"Error writing config file: {e}")
 
-    try:
-        new_package = PackageBuilder(target_location).build_package()
-        target_registry.add_package(
-            new_package.command,
-            new_package.name,
-            new_package.description,
-            str(new_package.location),
-            new_package.dependencies,
-        )
-        for script_name, script in new_package.scripts.items():
+
+# =====================================================
+# Repository Management Commands
+# =====================================================
+@repo_app.command("add")
+def repo_add(
+    ctx: typer.Context,
+    source: str = typer.Argument(..., help="URL of the repository to add"),
+    branch: Optional[str] = typer.Option(
+        None,
+        "--branch",
+        help="Git branch to use (default is the repository's default branch)",
+    ),
+    sync: bool = typer.Option(
+        True, "--sync/--no-sync", help="Enable auto-sync (default: sync)"
+    ),
+    name: Optional[str] = typer.Option(
+        None, "--name", help="Custom repository name (for display purposes)"
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Force overwrite if repository, its packages, and registry entries already exist",
+    ),
+):
+    """
+    Adds a repository containing tool packages to the registry.
+
+    After cloning/syncing, all tools found in the repository are imported into the registry.
+    Note: The registry uses the repository URL as the primary key.
+    """
+    registry_manager: Registry = ctx.obj["registry"]
+    pkg_manager: PackageManager = ctx.obj["pkg_manager"]
+    repo_url = source
+    logger.info("Starting to add repository with URL: %s", repo_url)
+
+    # If force is enabled, attempt to remove any existing repository folder and registry entries.
+    if force:
+        # Remove repository folder if it exists.
+        repo_candidate = repo_manager.repos_dir / Path(repo_url).stem
+        if repo_candidate.exists():
             try:
-                target_registry.add_script(new_package.command, script_name, script)
-            except Exception as e:
-                logger.error(
-                    "Error adding script '%s' to target registry: %s", script_name, e
+                # Use force option in remove_repo if supported.
+                repo_manager.remove_repo(str(repo_candidate))
+                typer.echo(
+                    f"Existing repository at '{repo_candidate}' removed due to force option."
                 )
-    except Exception as e:
-        logger.error("Error adding package to target registry: %s", e)
-        return False
+            except Exception as e:
+                typer.echo(f"Error removing existing repository folder: {e}")
 
-    try:
-        pm.remove_package(package_command)
-        shutil.rmtree(current_location)
-        logger.info("Package '%s' moved successfully.", package_command)
-        return True
-    except Exception as e:
-        logger.error("Error removing package from source registry: %s", e)
-        return False
-
-
-def copy_package_to_workspace(pm, source_registry, target_registry, package_command):
-    """
-    Copy a package from the user registry to the workspace registry for customization,
-    keeping the same command as the original.
-
-    Steps:
-      1. Retrieve the package from the source (user) registry.
-      2. Copy its folder from the source registry's tools folder into the target registry's tools folder,
-         keeping the same folder name.
-      3. Re-read the package from the new folder, update its description to indicate customization,
-         and add (or update) the package record (and its scripts) into the target registry.
-      4. The original package remains intact in the user registry.
-    """
-    package = source_registry.get_package(package_command)
-    if not package:
-        logger.error("Package '%s' not found in source registry.", package_command)
-        return False
-
-    target_tools_dir = target_registry.registry_path / "tools"
-    target_tools_dir.mkdir(parents=True, exist_ok=True)
-    current_location = Path(package["location"])
-    # Keep the same folder name (and therefore command)
-    target_location = target_tools_dir / current_location.name
-
-    # Remove target location if it exists.
-    if target_location.exists():
-        shutil.rmtree(target_location)
-    try:
-        shutil.copytree(current_location, target_location)
-    except Exception as e:
-        logger.error("Error copying package folder: %s", e)
-        return False
-
-    try:
-        # Re-read the package from the new location.
-        new_pkg = PackageBuilder(target_location).build_package()
-        # Keep the same command, but update the description to indicate customization.
-        new_pkg.description = f"{new_pkg.description} (Customized)"
-
-        # Add or update the package record in the target registry.
+        # Remove previously registered repository entries and associated packages.
         try:
-            target_registry.add_package(
-                new_pkg.command,
-                new_pkg.name,
-                new_pkg.description,
-                str(new_pkg.location),
-                new_pkg.dependencies,
-            )
-        except Exception as e:
-            logger.info(
-                "Package record already exists in target registry. Updating it."
-            )
-            target_registry.update_package(
-                new_pkg.command,
-                new_pkg.name,
-                new_pkg.description,
-                str(new_pkg.location),
-                new_pkg.dependencies,
-            )
+            # Delete registry entry for the repository if it exists.
+            registry_manager.delete_repository(repo_url)
+        except Exception:
+            pass
+        # Remove package entries associated with this repository.
+        packages_existing = registry_manager.list_packages(group=repo_url)
+        for pkg in packages_existing:
+            registry_manager.delete_package(pkg["command"])
+            for scr in registry_manager.list_scripts(pkg["command"]):
+                registry_manager.delete_script(pkg["command"], scr["script"])
 
-        # Add or update each script.
-        for script_name, script in new_pkg.scripts.items():
-            existing = target_registry.get_script(new_pkg.command, script_name)
-            if existing:
-                target_registry.update_script(new_pkg.command, script_name, script)
-                logger.info("Updated script '%s' for customized package.", script_name)
-            else:
-                target_registry.add_script(new_pkg.command, script_name, script)
-                logger.info("Added script '%s' for customized package.", script_name)
-    except Exception as e:
-        logger.error("Error adding customized package to target registry: %s", e)
-        return False
-
-    logger.info(
-        "Package '%s' copied to workspace (customized) successfully.", package_command
+    # add_repo now returns a tuple (repo_dir, effective_branch)
+    repo_dir, effective_branch = repo_manager.add_repo(repo_url, branch=branch)
+    display_name = name if name else repo_dir.name
+    typer.echo(
+        f"Repository added at: {repo_dir} (name: {display_name}, url: {repo_url})"
     )
-    return True
+    logger.debug("Repository cloned at %s with branch %s", repo_dir, effective_branch)
 
-
-# ---------------------------------------------------------------------------
-# Managing Local Package commands
-# ---------------------------------------------------------------------------
-@app.command("import")
-def import_package(
-    ctx: typer.Context,
-    local_path: Path = typer.Argument(..., help="Path to the local package or folder."),
-    group: Optional[str] = typer.Option(
-        None, help="Group name for the imported package(s)."
-    ),
-):
-    """
-    Import a local package or collection of packages into the registry.
-
-    If the provided path is a single package (a path to a manifest file or a folder
-    with one manifest file in its root), the tool will be added to the default group
-    (unless a group name is provided).
-
-    If the provided path is a folder containing multiple subdirectories each with a
-    manifest file, then the group will be named after that folder (unless a group name
-    is provided).
-
-    Examples:
-        devt local import ./single-package
-        devt local import ./collection-of-packages --group custom-group
-    """
-    logger.info("Importing local package(s) from '%s' into the registry.", local_path)
-    registry_manager = ctx.obj.get("registry_manager")
-    pm = PackageManager(registry_manager)
-
-    def try_import(path, collection):
-        try:
-            pm.import_package(path, collection=collection)
-        except Exception as e:
-            logger.error("Error importing package from '%s': %s", path, e)
-            raise typer.Exit(code=1)
-
-    if local_path.is_file():
-        try_import(local_path, group)
-    else:
-        collection = group or local_path.name
-        for mf in find_recursive_manifest_files(local_path):
-            try_import(mf, collection)
-
-
-@app.command("delete")
-def delete_tool(
-    ctx: typer.Context,
-    command: str = typer.Argument(..., help="Command of the tool to delete."),
-    force: bool = typer.Option(False, help="Force deletion without confirmation."),
-):
-    """
-    Delete a tool from the registry.
-
-    Example:
-        devt delete <tool command> --scope <user/workspace>
-    """
-    registry_manager = ctx.obj.get("registry_manager")
-    pm = PackageManager(registry_manager)
-
-    if not force and not typer.confirm(
-        f"Are you sure you want to delete tool '{command}'?"
-    ):
-        typer.echo("Operation cancelled.")
-        raise typer.Exit()
-
+    # Add the repository to the registry using the URL as the unique key.
     try:
-        pm.remove_package(command)
-        typer.echo(f"Tool '{command}' deleted.")
-    except Exception as e:
-        logger.error(f"Error deleting tool '{command}': {e}")
-        raise typer.Exit(code=1)
-
-
-@app.command("delete-group")
-def delete_group(
-    ctx: typer.Context,
-    group: str = typer.Argument(..., help="Group name to delete."),
-    force: bool = typer.Option(False, help="Force deletion without confirmation."),
-):
-    """
-    Delete a group of tools from the registry.
-
-    Example:
-        devt delete-group <group name> --scope <user/workspace>
-    """
-    registry_manager: Registry = ctx.obj.get("registry_manager")
-    pm = PackageManager(registry_manager)
-
-    if not force and not typer.confirm(
-        f"Are you sure you want to delete group '{group}'?"
-    ):
-        typer.echo("Operation cancelled.")
-        raise typer.Exit()
-
-    try:
-        collection = registry_manager.list_packages(collection=group)
-        for pkg in collection:
-            pm.remove_package(pkg["command"])
-        typer.echo(f"Group '{group}' deleted.")
-
-    except Exception as e:
-        logger.error(f"Error deleting group '{group}': {e}")
-        raise typer.Exit(code=1)
-
-
-@app.command("export")
-def export_tool(
-    ctx: typer.Context,
-    command: str = typer.Argument(..., help="Command of the tool to export."),
-    output: Path = typer.Argument(..., help="Output path for the exported package."),
-):
-    """
-    Export a tool from the registry as a zip archive.
-
-    Example:
-        devt export <tool command> <output path> --scope <user/workspace>
-    """
-    registry_manager: Registry = ctx.obj.get("registry_manager")
-
-    try:
-        package = registry_manager.get_package(command)
-        if not package:
-            logger.error("Tool '%s' not found in the registry.", command)
-            raise typer.Exit(code=1)
-
-        package_location = Path(package["location"])
-        if not package_location.exists():
-            logger.error("Tool folder '%s' not found.", package_location)
-            raise typer.Exit(code=1)
-
-        export_package(package_location, output)
-        typer.echo(f"Tool '{command}' exported to '{output}'.")
-    except Exception as e:
-        logger.error("Error exporting tool '%s': %s", command, e)
-        raise typer.Exit(code=1)
-
-@app.command("export-group")
-def export_group(
-    ctx: typer.Context,
-    group: str = typer.Argument(..., help="Group name to export."),
-    output: Path = typer.Argument(..., help="Output path for the exported package."),
-):
-    """
-    Export a group of tools from the registry as a zip archive.
-
-    Example:
-        devt export-group <group name> <output path> --scope <user/workspace>
-    """
-    registry_manager: Registry = ctx.obj.get("registry_manager")
-
-    try:
-        collection = registry_manager.list_packages(collection=group)
-        if not collection:
-            logger.error("No tools found in group '%s'.", group)
-            raise typer.Exit(code=1)
-
-        group_dir = registry_manager.registry_path / "tools" / group
-        if not group_dir.exists():
-            logger.error("Group folder '%s' not found.", group_dir)
-            raise typer.Exit(code=1)
-
-        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
-            for pkg in collection:
-                pkg_location = Path(pkg["location"])
-                for file in pkg_location.rglob("*"):
-                    if file.is_file():
-                        zf.write(file, file.relative_to(pkg_location))
-
-        typer.echo(f"Group '{group}' exported to '{output}'.")
-    except Exception as e:
-        logger.error("Error exporting group '%s': %s", group, e)
-        raise typer.Exit(code=1)
-
-@app.command("rename-group")
-def rename_group(
-    old_name: str = typer.Argument(..., help="Current group name."),
-    new_name: str = typer.Argument(..., help="New group name."),
-    workspace: bool = typer.Option(False, help="Operate on workspace-level registry."),
-    force: bool = typer.Option(False, help="Force rename without confirmation."),
-    dry_run: bool = typer.Option(False, help="Preview actions without changes."),
-):
-    """
-    Rename a group of local tools.
-
-    Updates both the registry entries and physically renames the group folder under base_dir/tools.
-    """
-    app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
-    registry_file = app_dir / "registry.json"
-    registry = load_json(registry_file)
-
-    tools_in_group = {
-        tool: data
-        for tool, data in registry.items()
-        if data.get("location", "").startswith("tools") and data.get("dir") == old_name
-    }
-    if not tools_in_group:
-        logger.error("No local tools found in group '%s'.", old_name)
-        raise typer.Exit()
-
-    if not force and not typer.confirm(
-        f"Are you sure you want to rename group '{old_name}' to '{new_name}'?"
-    ):
-        typer.echo("Operation cancelled.")
-        raise typer.Exit()
-
-    if dry_run:
-        typer.echo(
-            f"Dry run: would rename group '{old_name}' to '{new_name}' for tools: {list(tools_in_group.keys())}"
+        registry_manager.add_repository(
+            url=repo_url,
+            name=display_name,
+            branch=effective_branch,
+            location=str(repo_dir),
+            auto_sync=sync,
         )
-        raise typer.Exit()
-
-    old_group_dir = app_dir / "tools" / old_name
-    new_group_dir = app_dir / "tools" / new_name
-    if old_group_dir.exists():
-        try:
-            old_group_dir.rename(new_group_dir)
-            typer.echo(f"Renamed folder '{old_group_dir}' to '{new_group_dir}'")
-        except Exception as e:
-            logger.error(
-                "Failed to rename group folder '%s' to '%s': %s",
-                old_group_dir,
-                new_group_dir,
-                e,
-            )
-            raise
-    else:
-        logger.error("Group directory '%s' not found.", old_group_dir)
-        raise typer.Exit()
-
-    for tool, data in tools_in_group.items():
-        data["dir"] = new_name
-        old_location_prefix = f"tools/{old_name}"
-        new_location_prefix = f"tools/{new_name}"
-        if data.get("location", "").startswith(old_location_prefix):
-            data["location"] = data["location"].replace(
-                old_location_prefix, new_location_prefix, 1
-            )
-    save_json(registry_file, registry)
-    typer.echo(f"Group renamed from '{old_name}' to '{new_name}' in registry.")
-
-
-@app.command("move")
-def move_tool(
-    tool_name: str = typer.Argument(..., help="Identifier of the local tool to move."),
-    new_group: str = typer.Argument(
-        ..., help="New group name where the tool will be moved."
-    ),
-    workspace: bool = typer.Option(False, help="Operate on workspace-level registry."),
-    force: bool = typer.Option(False, help="Force move without confirmation."),
-    dry_run: bool = typer.Option(False, help="Preview actions without changes."),
-):
-    """
-    Move a local tool from its current group to a new group.
-
-    Updates the registry entry's group ("dir" field) and physically moves the tool folder.
-    """
-    app_dir = WORKSPACE_REGISTRY_DIR if workspace else REGISTRY_DIR
-    registry_file = app_dir / "registry.json"
-    registry = load_json(registry_file)
-
-    if tool_name not in registry:
-        logger.error("Local tool '%s' not found in registry.", tool_name)
-        raise typer.Exit()
-
-    data = registry[tool_name]
-    if not data.get("location", "").startswith("tools"):
-        logger.error("Tool '%s' is not a local package.", tool_name)
-        raise typer.Exit()
-
-    current_group = data.get("dir")
-    if current_group == new_group:
-        typer.echo(f"Tool '{tool_name}' is already in group '{new_group}'.")
-        raise typer.Exit()
-
-    tool_manifest = Path(data.get("location"))
-    if not tool_manifest.is_absolute():
-        tool_manifest = app_dir / tool_manifest
-    tool_folder = tool_manifest.parent
-    new_tool_folder = app_dir / "tools" / new_group / tool_folder.name
-
-    if not force and not typer.confirm(
-        f"Move tool '{tool_name}' from group '{current_group}' to '{new_group}'?"
-    ):
-        typer.echo("Operation cancelled.")
-        raise typer.Exit()
-
-    if dry_run:
-        typer.echo(
-            f"Dry run: would move tool '{tool_name}' from '{tool_folder}' to '{new_tool_folder}'"
-        )
-        raise typer.Exit()
-
-    new_group_dir = app_dir / "tools" / new_group
-    new_group_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        shutil.move(str(tool_folder), str(new_tool_folder))
-        data["dir"] = new_group
-        old_location_prefix = f"tools/{current_group}"
-        new_location_prefix = f"tools/{new_group}"
-        if data.get("location", "").startswith(old_location_prefix):
-            data["location"] = data["location"].replace(
-                old_location_prefix, new_location_prefix, 1
-            )
-        save_json(registry_file, registry)
-        typer.echo(f"Tool '{tool_name}' moved to group '{new_group}'.")
+        logger.info("Repository '%s' added to the registry.", repo_url)
+        typer.echo(f"Repository '{repo_url}' added to the registry.")
     except Exception as e:
-        logger.error("Failed to move tool '%s': %s", tool_name, e)
-        raise
+        logger.exception("Error adding repository to registry:")
+        typer.echo(f"Error adding repository to registry: {e}")
+        raise typer.Exit(code=1)
 
-
-# # ---------------------------------------------------------------------------
-# # Visualization Commands (List, Info)
-# # ---------------------------------------------------------------------------
-# # TODO: BEGIN - Move these to a separate module and extend with more features
-@app.command("list")
-def list_tools(
-    user_level: bool = typer.Option(
-        False, "--user", help="List only user-level tools."
-    ),
-    workspace_level: bool = typer.Option(
-        False, "--workspace", help="List only workspace-level tools."
-    ),
-    all_tools: bool = typer.Option(
-        False, "--all", help="Include inactive tools as well."
-    ),
-    command: Optional[str] = typer.Option(None, help="Filter tools by command."),
-    name: Optional[str] = typer.Option(None, help="Filter tools by name."),
-    description: Optional[str] = typer.Option(
-        None, help="Filter tools by description."
-    ),
-    location: Optional[str] = typer.Option(None, help="Filter tools by location."),
-    collection: Optional[str] = typer.Option(None, help="Filter tools by collection."),
-    active: Optional[bool] = typer.Option(None, help="Filter tools by active status."),
-):
-    """
-    List tools from the user and/or workspace registry in a concise table.
-    """
-    # If neither flag is set, search both registries.
-    if not user_level and not workspace_level:
-        user_level = True
-        workspace_level = True
-
-    found_any = False
-    for scope, registry_manager in registry_managers.items():
-        if (scope == "user" and not user_level) or (
-            scope == "workspace" and not workspace_level
-        ):
-            continue
-
-        # Determine active filter:
-        # If user explicitly passes --active, use that.
-        # Otherwise, if --all is not set, only show active tools.
-        active_filter = active if active is not None else (None if all_tools else True)
-
-        packages = registry_manager.list_packages(
-            command=command,
-            name=name,
-            description=description,
-            location=location,
-            collection=collection,
-            active=active_filter,
+    # Import all tool packages from this repository and add them to the registry,
+    # associating them with the repository URL.
+    try:
+        logger.info("Importing tool packages from repository '%s'...", display_name)
+        packages = pkg_manager.import_package(
+            repo_dir, group=repo_dir.name, overwrite=force
         )
-
-        if not packages:
-            typer.echo(f"No tools found in the {scope} registry.")
-            continue
-
-        found_any = True
-        header = f"{'Tool Command':<20} {'Name':<20} {'Active':<7} {'Collection':<20}"
-        typer.echo(f"\n[{scope.upper()} REGISTRY]")
-        typer.echo(header)
-        typer.echo("-" * len(header))
         for pkg in packages:
-            typer.echo(
-                f"{pkg['command']:<20} {pkg['name']:<20} "
-                f"{('Yes' if pkg['active'] else 'No'):<7} {pkg['collection']:<20}"
+            # If force is enabled, remove existing package entries before adding.
+            if force:
+                if registry_manager.get_package(pkg.command):
+                    registry_manager.delete_package(pkg.command)
+                    for script in registry_manager.list_scripts(pkg.command):
+                        registry_manager.delete_script(pkg.command, script["script"])
+            registry_manager.add_package(
+                pkg.command,
+                pkg.name,
+                pkg.description,
+                str(pkg.location),
+                pkg.dependencies,
+                group=repo_dir.name,
             )
+            for script_name, script in pkg.scripts.items():
+                registry_manager.add_script(pkg.command, script_name, script.to_dict())
+        logger.info(
+            "Imported %d tool package(s) from repository '%s'.",
+            len(packages),
+            display_name,
+        )
+        typer.echo(
+            f"Imported {len(packages)} tool package(s) from repository '{display_name}'."
+        )
+    except Exception as e:
+        logger.exception("Error importing packages from repository:")
+        typer.echo(f"Error importing packages from repository: {e}")
 
-    if not found_any:
+
+@repo_app.command("remove")
+def repo_remove(
+    ctx: typer.Context,
+    repo_name: str = typer.Argument(..., help="Repository name to remove"),
+    force: bool = typer.Option(False, "--force", help="Force removal"),
+):
+    """
+    Removes a repository and all its associated tools.
+
+    This command deletes the repository folder from disk and removes all package entries
+    in the registry that belong to the group named after the repository. It also removes
+    the packages using the package manager and deletes the repository entry from the registry.
+    """
+    registry_manager: Registry = ctx.obj["registry"]
+    pkg_manager: PackageManager = ctx.obj["pkg_manager"]
+    repo_dir = repo_manager.repos_dir / repo_name
+    if not repo_dir.exists():
+        typer.echo(f"Repository '{repo_name}' not found.")
+        raise typer.Exit(code=1)
+
+    if force:
+        typer.echo(f"Force removing repository '{repo_name}'...")
+
+    try:
+        # Pass force flag to the removal method if supported by the repo manager.
+        success = repo_manager.remove_repo(str(repo_dir))
+    except Exception as e:
+        typer.echo(f"Error removing repository '{repo_name}': {e}")
+        raise typer.Exit(code=1)
+
+    if success:
+        typer.echo(f"Repository '{repo_name}' removed from disk.")
+
+        # Remove registry entries and tool packages belonging to the repository group
+        packages = registry_manager.list_packages(group=repo_name)
+        if packages:
+            removed_count = 0
+            for pkg in packages:
+                pkg_path = Path(pkg["location"])
+                try:
+                    if pkg_manager.delete_package(pkg_path):
+                        removed_count += 1
+                except Exception as e:
+                    typer.echo(f"Error removing package at '{pkg_path}': {e}")
+                registry_manager.delete_package(pkg["command"])
+                for script in registry_manager.list_scripts(pkg["command"]):
+                    registry_manager.delete_script(pkg["command"], script["script"])
+            typer.echo(
+                f"Removed {removed_count} tool package(s) from disk and {len(packages)} registry entry(ies) for group '{repo_name}'."
+            )
+        else:
+            typer.echo(f"No registry entries found for group '{repo_name}'.")
+
+        # Finally, remove the repository entry from the registry
+        try:
+            # Get the repository entry by name and remove it by URL
+            repo_entry = registry_manager.get_repositories_by_name(name=repo_name)
+            registry_manager.delete_repository(repo_entry["url"])
+            typer.echo(f"Repository '{repo_name}' removed from the registry.")
+        except Exception as e:
+            typer.echo(f"Failed to remove repository '{repo_name}' from registry: {e}")
+    else:
+        typer.echo(f"Failed to remove repository '{repo_name}'.")
+
+
+@repo_app.command("sync")
+def repo_sync(
+    ctx: typer.Context,
+    repo_name: str = typer.Argument(..., help="Repository name to sync"),
+    branch: Optional[str] = typer.Option(
+        None,
+        "--branch",
+        help="Git branch to sync (if provided, checkout that branch and pull updates)",
+    ),
+):
+    """
+    Syncs a specific repository.
+    If branch is provided, verifies the branch exists, checks it out, and pulls the latest changes.
+    Otherwise, syncs using the currently checked-out branch.
+    Also updates the tool packages and registry entries.
+    """
+    repo_dir = repo_manager.repos_dir / repo_name
+    if not repo_dir.exists():
+        typer.echo(f"Repository '{repo_name}' not found.")
+        raise typer.Exit(code=1)
+
+    updated_dir = repo_manager.sync_repo(str(repo_dir), branch=branch)
+    typer.echo(f"Repository '{repo_name}' synced. Local path: {updated_dir}")
+
+    # Update packages and registry entries below:
+    registry_manager: Registry = ctx.obj["registry"]
+    pkg_manager: PackageManager = ctx.obj["pkg_manager"]
+
+    try:
+        packages = pkg_manager.import_package(updated_dir, group=repo_name)
+        for pkg in packages:
+            registry_manager.update_package(
+                pkg.command,
+                pkg.name,
+                pkg.description,
+                str(pkg.location),
+                pkg.dependencies,
+                group=repo_name,
+            )
+            for script_name, script in pkg.scripts.items():
+                registry_manager.update_script(
+                    pkg.command, script_name, script.to_dict()
+                )
+        typer.echo(
+            f"Updated {len(packages)} tool package(s) from repository '{repo_name}' in the registry."
+        )
+    except Exception as e:
+        typer.echo(
+            f"Error updating packages and registry for repository '{repo_name}': {e}"
+        )
+
+
+@repo_app.command("sync-all")
+def repo_sync_all(ctx: typer.Context):
+    """
+    Synchronizes all repositories at once by calling the repo_sync command for each repository.
+    """
+    repos = list(repo_manager.repos_dir.iterdir())
+    if not repos:
+        typer.echo("No repositories found.")
+        return
+    for repo in repos:
+        try:
+            # Reuse the repo_sync command to update each repository and its registry entries
+            repo_sync(ctx, repo.name)
+            typer.echo(f"Synced repository: {repo.name}")
+        except Exception as e:
+            typer.echo(f"Failed to sync {repo.name}: {e}")
+
+
+@repo_app.command("list")
+def repo_list(
+    ctx: typer.Context,
+    url: Optional[str] = typer.Option(None, help="Filter by repository URL"),
+    name: Optional[str] = typer.Option(
+        None, help="Filter by repository name (partial match)"
+    ),
+    branch: Optional[str] = typer.Option(None, help="Filter by branch (partial match)"),
+    location: Optional[str] = typer.Option(
+        None, help="Filter by location (partial match)"
+    ),
+    auto_sync: Optional[bool] = typer.Option(
+        None, help="Filter by auto sync status (True/False)"
+    ),
+):
+    """
+    Displays all registered repositories and their status using the registry,
+    with filtering options.
+    """
+    registry_manager: Registry = ctx.obj["registry"]
+    repos = registry_manager.list_repositories(
+        url=url, name=name, branch=branch, location=location, auto_sync=auto_sync
+    )
+    if repos:
+        # Define headers
+        headers = ["Name", "URL", "Branch", "Location", "Auto Sync"]
+        # Prepare rows from repos data
+        rows = []
+        for repo in repos:
+            rows.append(
+                [
+                    str(repo.get("name", "")),
+                    str(repo.get("url", "")),
+                    str(repo.get("branch", "")),
+                    str(repo.get("location", "")),
+                    str(repo.get("auto_sync", "")),
+                ]
+            )
+        # Calculate maximum width for each column
+        col_widths = [
+            max(len(headers[i]), max((len(row[i]) for row in rows), default=0))
+            for i in range(len(headers))
+        ]
+        # Build the separator and header line
+        separator = "+" + "+".join("-" * (w + 2) for w in col_widths) + "+"
+        header_line = (
+            "|"
+            + "|".join(
+                f" {headers[i].ljust(col_widths[i])} " for i in range(len(headers))
+            )
+            + "|"
+        )
+
+        typer.echo(separator)
+        typer.echo(header_line)
+        typer.echo(separator)
+        # Print each row in the table
+        for row in rows:
+            row_line = (
+                "|"
+                + "|".join(f" {row[i].ljust(col_widths[i])} " for i in range(len(row)))
+                + "|"
+            )
+            typer.echo(row_line)
+        typer.echo(separator)
+    else:
+        typer.echo("No repositories found.")
+
+
+# =====================================================
+# Tool Management Commands
+# =====================================================
+@tool_app.command("import")
+def tool_import(
+    ctx: typer.Context,
+    path: Path = typer.Argument(
+        ...,
+        help="Path to a manifest file, tool package directory, or package zip archive",
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Force overwrite if the package already exists"
+    ),
+    group: Optional[str] = typer.Option(
+        None, "--group", help="Custom group name for the tool package (optional)"
+    ),
+):
+    """
+    Imports a tool package (or multiple tool packages) into the registry from:
+      - A manifest file (YAML/JSON)
+      - A directory with one manifest (a single tool package)
+      - A directory with multiple subdirectories (multiple tool packages)
+      - A zip archive (will be unpacked first)
+    If force is enabled, any existing package with the same command is overwritten.
+    If group is not provided, the import_package function will try to determine the group.
+    """
+    scope = ctx.obj["scope"]
+    registry_manager: Registry = ctx.obj["registry"]
+    pkg_manager: PackageManager = ctx.obj["pkg_manager"]
+
+    # If the provided path is a zip archive, unpack it first
+    if path.suffix.lower() == ".zip":
+        destination_dir = path.parent / path.stem
+        path = pkg_manager.unpack_package(path, destination_dir)
+
+    packages = pkg_manager.import_package(path, group=group, force=force)
+    count = 0
+    for pkg in packages:
+        existing_pkg = registry_manager.get_package(pkg.command)
+        if existing_pkg:
+            if force:
+                registry_manager.delete_package(pkg.command)
+                for script in registry_manager.list_scripts(pkg.command):
+                    registry_manager.delete_script(pkg.command, script["script"])
+            else:
+                typer.echo(
+                    f"Package '{pkg.command}' already exists. Use --force to overwrite."
+                )
+                continue
+
+        registry_manager.add_package(
+            pkg.command,
+            pkg.name,
+            pkg.description,
+            str(pkg.location),
+            pkg.dependencies,
+            group=pkg.group,
+        )
+        for script_name, script in pkg.scripts.items():
+            registry_manager.add_script(pkg.command, script_name, script.to_dict())
+        count += 1
+    typer.echo(f"Imported {count} tool package(s) into the {scope} registry.")
+
+
+@tool_app.command("list")
+def tool_list(
+    ctx: typer.Context,
+    command: Optional[str] = typer.Option(None, help="Filter by tool command"),
+    name: Optional[str] = typer.Option(
+        None, help="Filter by tool name (partial match)"
+    ),
+    description: Optional[str] = typer.Option(None, help="Filter by tool description"),
+    location: Optional[str] = typer.Option(
+        None, help="Filter by tool location (partial match)"
+    ),
+    group: Optional[str] = typer.Option(None, help="Filter by tool group"),
+    active: Optional[bool] = typer.Option(None, help="Filter by active status"),
+):
+    """
+    Lists all tools in the registry, with filtering options.
+    """
+    registry_manager: Registry = ctx.obj["registry"]
+    tools = registry_manager.list_packages(
+        command=command,
+        name=name,
+        description=description,
+        location=location,
+        group=group,
+        active=active,
+    )
+    if tools:
+        for tool in tools:
+            typer.echo(
+                f"Command:     {tool.get('command')}\n"
+                f"Name:        {tool.get('name')}\n"
+                f"Description: {tool.get('description')}\n"
+                f"Location:    {tool.get('location')}\n"
+                f"Group:       {tool.get('group')}\n"
+                f"Active:      {tool.get('active')}\n"
+                "------------------------------------"
+            )
+    else:
         typer.echo("No tools found.")
 
 
-@app.command("show")
-def show_tool_info(
-    command: str = typer.Argument(..., help="Command of the tool to show."),
-    scope: Optional[List[str]] = typer.Option(
-        None, "--scope", help="Specify registry scope(s): user and/or workspace"
-    ),
+@tool_app.command("info")
+def tool_info(
+    ctx: typer.Context,
+    command: str = typer.Argument(..., help="Unique tool command identifier"),
 ):
     """
-    Show detailed information about a tool from the registry.
-
-    If --scope is provided, searches in the specified scope(s). Otherwise, uses the default registry.
+    Displays detailed information and the available scripts for the specified tool.
     """
-    found = False
-    for scope, registry_manager in registry_managers.items():
-        package = registry_manager.get_package(command)
-        if package:
-            found = True
-            typer.echo(f"[{scope.upper()} REGISTRY]")
-            typer.echo(f"Tool: {package['name']} ({command})")
-            typer.echo(f"Description: {package['description']}")
-            typer.echo(f"Location: {package['location']}")
-            typer.echo(f"Group: {package['group']}")
-            typer.echo(f"Active: {'Yes' if package['active'] else 'No'}")
-            typer.echo("Scripts:")
-            scripts = registry_manager.list_scripts(command)
-            if not scripts:
-                typer.echo("  No scripts found.")
-            else:
-                for script in scripts:
-                    typer.echo(f"  Script: {script['script']}")
-                    typer.echo(f"    Args: {script['args']}")
-                    typer.echo(f"    Shell: {script['shell']}")
-                    typer.echo(f"    CWD: {script['cwd']}")
-                    typer.echo(f"    Env: {script['env']}")
-                    typer.echo(f"    Kwargs: {script['kwargs']}")
-            typer.echo("")  # Separate output between scopes
-
-    if not found:
-        typer.echo(f"Tool '{command}' not found in the specified registry scope(s).")
+    registry_manager: Registry = ctx.obj["registry"]
+    tool = registry_manager.get_package(command)
+    if not tool:
+        typer.echo(f"Tool with command '{command}' not found.")
         raise typer.Exit(code=1)
 
-
-# TODO: END
-
-# # # ---------------------------------------------------------------------------
-# # # Managing Repository commands
-# # # ---------------------------------------------------------------------------
-# # @app.command("add")
-# # def add_repo(
-# #     ctx: typer.Context,
-# #     source: str,
-# #     branch: str = typer.Option(None, help="Specify the branch for repository sources."),
-# #     auto_sync: bool = typer.Option(
-# #         True, help="Automatically sync repositories after adding."
-# #     ),
-# #     name_override: Optional[str] = typer.Option(
-# #         None, "--name", help="Override the inferred repository name."
-# #     ),
-# # ):
-# #     """
-# #     Add tools from a repository to the registry.
-
-# #     Example:
-# #         devt repo add <source> --branch <branch> --name <repo name> --scope <user/workspace>
-# #     """
-# #     registry_manager = ctx.obj.get("registry_manager")
-# #     typer.echo(f"Using registry directory: {registry_manager.location()}")
-
-# #     # Derive a name for the repo if not explicitly provided
-# #     repo_name = name_override or guess_repo_name_from_url(source)
-# #     repo_dir = registry_manager.location() / "repos" / repo_name
-
-# #     # Create a ToolRepo object for this repository
-# #     tool_repo = ToolRepo(
-# #         name=repo_name,
-# #         base_path=repo_dir,
-# #         registry_manager=registry_manager,
-# #         remote_url=source,
-# #         branch=branch,
-# #         auto_sync=auto_sync,
-# #     )
-
-# #     try:
-# #         tool_repo.add_repo()
-# #     except Exception as e:
-# #         logger.exception("An error occurred while adding repository tools: %s", e)
-# #         raise typer.Exit(code=1)
-
-
-# # @app.command("remove")
-# # def remove_repo(
-# #     ctx: typer.Context,
-# #     repo_name: str = typer.Argument(
-# #         ..., help="Name of the repository (group) to remove."
-# #     ),
-# #     force: bool = typer.Option(False, help="Force removal without confirmation."),
-# # ):
-# #     """
-# #     Remove a repository and all its associated tools from the registry.
-
-# #     Example:
-# #         devt repo remove <repo name> --scope <user/workspace>
-# #     """
-# #     registry_manager = ctx.obj.get("registry_manager")
-# #     typer.echo(f"Using registry directory: {registry_manager.location()}")
-# #     repo_dir = registry_manager.location() / "repos" / repo_name
-
-# #     if not repo_dir.exists():
-# #         logger.error("[devt] Repository directory '%s' not found.", repo_dir)
-# #         raise typer.Exit(code=1)
-
-# #     # Confirm removal if not forced.
-# #     if not force:
-# #         if not typer.confirm(
-# #             f"Are you sure you want to remove repository '{repo_name}' and all its tools?"
-# #         ):
-# #             typer.echo("Operation cancelled.")
-# #             raise typer.Exit()
-
-# #     # Create a ToolRepo just so we can call remove_collection()
-# #     tool_repo = ToolRepo(
-# #         name=repo_name,
-# #         base_path=repo_dir,
-# #         registry_manager=registry_manager,
-# #         remote_url="",
-# #     )
-
-# #     try:
-# #         tool_repo.remove_repo(force=force)
-# #         typer.echo(f"[devt] Repository '{repo_name}' and its associated tools removed.")
-# #     except Exception as e:
-# #         logger.error("[devt] Failed to remove repository '%s': %s", repo_name, e)
-# #         raise typer.Exit(code=1)
-
-
-# # def _sync_one_repo(
-# #     registry_manager: RegistryManager,
-# #     repo_name: str,
-# #     raise_on_missing: bool = True,
-# # ) -> None:
-# #     """
-# #     Perform the actual sync logic for a single repo.
-# #     If `raise_on_missing` is True, raise typer.Exit if the repo directory is missing.
-# #     If False, just log a warning and return.
-# #     """
-# #     single_repo_dir = registry_manager.location() / "repos" / repo_name
-
-# #     if not single_repo_dir.exists():
-# #         msg = f"Requested repo '{repo_name}' not found at {single_repo_dir}"
-# #         if raise_on_missing:
-# #             logger.error(msg)
-# #             raise typer.Exit(code=1)
-# #         else:
-# #             logger.warning(msg)
-# #             return
-
-# #     logger.info(f"Syncing repository: {repo_name}")
-
-# #     # Look up registry data
-# #     matching_entry = None
-# #     for tool_key, data in registry_manager.registry.items():
-# #         if data.get("dir") == repo_name:
-# #             matching_entry = data
-# #             break
-
-# #     remote_url = matching_entry["source"] if matching_entry else ""
-# #     branch = matching_entry.get("branch") if matching_entry else None
-# #     auto_sync = matching_entry.get("auto_sync") if matching_entry else True
-
-# #     # Sync the single repo
-# #     tool_repo = ToolRepo(
-# #         name=repo_name,
-# #         base_path=single_repo_dir,
-# #         registry_manager=registry_manager,
-# #         remote_url=remote_url,
-# #         branch=branch,
-# #         auto_sync=auto_sync,
-# #     )
-# #     try:
-# #         tool_repo.update_repo()
-# #         typer.echo(f"Repository '{repo_name}' sync completed.")
-# #     except Exception as e:
-# #         logger.error(f"[devt] Failed to sync repository {repo_name}: {e}")
-
-
-# # @app.command("sync")
-# # def sync_repo(
-# #     ctx: typer.Context,
-# #     repo_name: str = typer.Argument(..., help="Name of the repository to sync."),
-# # ):
-# #     """
-# #     Sync a single repository by pulling the latest changes.
-
-# #     Example:
-# #         devt sync <repo name> --scope <user/workspace>
-# #     """
-# #     registry_manager = ctx.obj.get("registry_manager")
-
-# #     _sync_one_repo(registry_manager, repo_name, raise_on_missing=True)
-
-
-# # @app.command("sync-all")
-# # def sync_all(
-# #     ctx: typer.Context,
-# # ):
-# #     """
-# #     Sync ALL repositories by pulling the latest changes.
-
-# #     Example:
-# #         devt sync-all --scope <user/workspace>
-# #     """
-# #     registry_manager = ctx.obj.get("registry_manager")
-
-# #     repos_dir = registry_manager.location() / "repos"
-# #     if not repos_dir.exists():
-# #         logger.warning(f"Repositories directory not found: {repos_dir}")
-# #         return
-
-# #     logger.info("Starting repository sync of ALL repos...")
-
-# #     repo_paths = [p for p in repos_dir.iterdir() if p.is_dir()]
-
-# #     if not repo_paths:
-# #         logger.warning(f"No repositories found in directory: {repos_dir}")
-# #         return
-
-# #     for repo_path in repo_paths:
-# #         if not repo_path.is_dir() or repo_path.name.startswith(".git"):
-# #             continue
-
-# #         current_repo_name = repo_path.name
-
-# #         # Reuse the same sync logic. But here we use `raise_on_missing=False`
-# #         # so that if one repo is missing or fails, we don't exit the entire loop.
-# #         _sync_one_repo(
-# #             registry_manager=registry_manager,
-# #             repo_name=current_repo_name,
-# #             raise_on_missing=False,
-# #         )
-
-# #     logger.info("Repository sync completed.")
-
-
-# # ---------------------------------------------------------------------------
-# # Project Commands (Init)
-# # ---------------------------------------------------------------------------
-# # TODO: BEGIN - (needs refactoring) The functions below should be extended. Add templates feature.
-
-
-# @app.command("init")
-# def init_project():
-#     """
-#     Initialize the current project by creating a workspace.json configuration file.
-
-#     This file will be added to the workspace registry under the key "workspace".
-#     """
-#     project_file = Path.cwd() / "workspace.json"
-#     if project_file.exists():
-#         typer.echo("workspace.json already exists in the current directory.")
-#         raise typer.Exit()
-#     default_config = {
-#         "tools": {},
-#         "scripts": {
-#             "test": "echo 'Run project tests'",
-#             "deploy": "echo 'Deploy project'",
-#             "destroy": "echo 'Destroy project resources'",
-#         },
-#     }
-#     with project_file.open("w") as f:
-#         json.dump(default_config, f, indent=4)
-#     typer.echo("Initialized project with workspace.json.")
-
-
-# # TODO: END
-
-
-# # ---------------------------------------------------------------------------
-# # Execute Commands (Do, Run, Install, Uninstall, Upgrade, Version, Test)
-# # ---------------------------------------------------------------------------
-# # def auto_sync_tool(
-# #     tool_name: str, registry_dir: Path, registry_manager: RegistryManager
-# # ):
-# #     """
-# #     If auto_sync is enabled for the tool, update the repository.
-# #     """
-# #     tool = find_tool_in_registry(tool_name, registry_dir / "registry.json")
-# #     if tool and tool.get("auto_sync", False):
-# #         _sync_one_repo(
-# #             tool.get("dir", ""),
-# #             workspace=(registry_dir == WORKSPACE_REGISTRY_DIR),
-# #             registry_manager=registry_manager,
-# #             raise_on_missing=False,
-# #         )
-
-
-@app.command("do")
-def do(
-    tool_name: str = typer.Argument(..., help="The tool to run the script for."),
-    script_name: str = typer.Argument(..., help="The name of the script to run."),
-    additional_args: Annotated[Optional[List[str]], typer.Argument()] = None,
-):
-    """
-    Run a specified script for the given tool.
-
-    The tool is looked up first in the workspace registry, then in the user registry.
-    """
-    # TODO: BEGIN - (needs refactoring) This block should find the tool in the registry, sync if needed, and produce the base_dir and scripts_dict.
-    # Lookup the tool from the registries.
-    try:
-        tool, registry_dir = get_tool(tool_name)
-    except ValueError as ve:
-        raise typer.Exit(str(ve))
-
-    # If auto_sync is enabled, update the repository.
-    if tool.get("auto_sync", False):
-        _sync_one_repo(
-            registry_manager=RegistryManager(registry_dir),
-            repo_name=tool.get("dir", ""),
-            raise_on_missing=False,
-        )
-        try:
-            tool, registry_dir = get_tool(tool_name)
-        except ValueError as ve:
-            raise typer.Exit(str(ve))
-
-    manifest_path = registry_dir / tool.get("location")
-
-    base_dir, scripts_dict = get_execute_args(manifest_path)
-    # TODO: END
-
-    executor = ManifestRunner(base_dir, scripts_dict)
-
-    # Execute a script synchronously.
-    try:
-        executor.run_shell_fallback(script_name, additional_args)
-    except Exception as e:
-        print(f"Execution error: {e}")
-
-
-@app.command()
-def run(
-    script_name: str = typer.Argument(..., help="The name of the script to run."),
-    additional_args: Annotated[Optional[List[str]], typer.Argument()] = None,
-):
-    """
-    Run a specified script for the given tool.
-    """
-    # Check if "workspace" .json | .cjson | .yaml | .yml exists in the current directory.
-    workspace_file = find_file_type("workspace")
-    if not workspace_file:
-        typer.echo("No workspace file found in the current directory.")
-        typer.echo("Please run 'devt init' to create a workspace file.")
-        raise typer.Exit(code=1)
-
-    base_dir, scripts_dict = get_execute_args(workspace_file)
-
-    executor = ManifestRunner(base_dir, scripts_dict)
-
-    # Execute a script synchronously.
-    try:
-        executor.run_shell_fallback(script_name, additional_args)
-    except Exception as e:
-        print(f"Execution error: {e}")
-
-
-@app.command()
-def install(
-    tools: List[str] = typer.Argument(..., help="List of tool names to install"),
-):
-    """
-    Install the specified tools.
-    """
-    for tool in tools:
-        do(tool, "install")
-
-
-@app.command()
-def uninstall(
-    tools: List[str] = typer.Argument(..., help="List of tool names to uninstall"),
-):
-    """
-    Uninstall the specified tools.
-    """
-    for tool in tools:
-        do(tool, "uninstall")
-
-
-@app.command()
-def upgrade(
-    tools: List[str] = typer.Argument(..., help="List of tool names to upgrade"),
-):
-    """
-    Upgrade the specified tools.
-    """
-    for tool in tools:
-        do(tool, "upgrade")
-
-
-@app.command()
-def version(
-    tools: List[str] = typer.Argument(
-        ..., help="List of tool names to display the version for"
-    ),
-):
-    """
-    Display the version of the specified tools.
-    """
-    for tool in tools:
-        do(tool, "version")
-
-
-@app.command()
-def test(
-    tools: List[str] = typer.Argument(
-        ..., help="List of tool names to run the test for"
-    ),
-):
-    """
-    Run the test script for the specified tools.
-    """
-    for tool in tools:
-        do(tool, "test")
-
-
-# ---------------------------------------------------------------------------
-# App Meta Commands (Version, Upgrade)
-# ---------------------------------------------------------------------------
-# TODO: BEGIN - The functionality of this block should be moved to a separate file (e.g. meta.py) and imported here.
-def check_for_update(current_version):
-    try:
-        response = requests.get(
-            "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
-        )
-        response.raise_for_status()
-        latest_version = response.json()["tag_name"]
-        logger.info(f"Latest version: {latest_version}")
-        return latest_version if latest_version != current_version else None
-    except requests.RequestException as e:
-        logger.error(f"Failed to check for updates: {e}")
-        return None
-
-
-def download_latest_version(url, download_path):
-    try:
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-        with open(download_path, "wb") as file:
-            shutil.copyfileobj(response.raw, file)
-        logger.info(f"Downloaded latest version to {download_path}")
-    except requests.RequestException as e:
-        logger.error(f"Failed to download the latest version: {e}")
-        raise
-
-
-@app.command()
-def my_upgrade():
-    import sys
-
-    current_version = __version__
-    typer.echo(f"Current version: {current_version}")
-    typer.echo("Checking for updates...")
-    latest_version = check_for_update(current_version)
-
-    if latest_version:
-        typer.echo(f"New version available: {latest_version}. Downloading...")
-        download_url = f"https://github.com/dkuwcreator/devt/releases/download/{latest_version}/devt.exe"
-        temp_folder = Path(os.getenv("TEMP", "/tmp"))
-        download_path = temp_folder / f"devt_{latest_version}.exe"
-        download_latest_version(download_url, download_path)
-
-        # Replace the current version with the new one
-        current_executable = sys.executable
-        try:
-            logger.info("Replacing the current executable with the new version...")
-            os.replace(download_path, current_executable)
-            typer.echo("Upgrade complete!")
-        except Exception as e:
-            logger.error("Failed to replace the current executable: %s", e)
-            typer.echo("Upgrade failed. Please try again.")
+    # Display tool information in a formatted manner.
+    header = "=" * 50
+    typer.echo(header)
+    typer.echo(f"{'TOOL INFORMATION':^50}")
+    typer.echo(header)
+    typer.echo(f"{'Command:':12s} {tool.get('command', 'N/A')}")
+    typer.echo(f"{'Name:':12s} {tool.get('name', 'N/A')}")
+    typer.echo(f"{'Description:':12s} {tool.get('description', 'N/A')}")
+    typer.echo(f"{'Location:':12s} {tool.get('location', 'N/A')}")
+    typer.echo(f"{'Group:':12s} {tool.get('group', 'N/A')}")
+    typer.echo(f"{'Active:':12s} {tool.get('active', 'N/A')}")
+    typer.echo(header)
+
+    # Display available scripts.
+    scripts = registry_manager.list_scripts(command)
+    if scripts:
+        typer.echo("\nAvailable Scripts:")
+        for script in scripts:
+            typer.echo("-" * 50)
+            for key, value in script.items():
+                typer.echo(f"{key.capitalize():12s}: {value}")
+        typer.echo("-" * 50)
     else:
-        typer.echo("You are already using the latest version.")
+        typer.echo("No scripts found for this tool.")
 
 
-@app.command()
-def my_version():
-    typer.echo(f"Version: {__version__}")
-
-
-# TODO: END
-
-
-# ------------------------------------------------------------------------------
-# Final entry point using a entry() function
-# ------------------------------------------------------------------------------
-def entry():
+@tool_app.command("remove")
+def tool_remove(
+    ctx: typer.Context,
+    command: str = typer.Argument(..., help="Unique tool command to remove"),
+):
     """
-    Entry point when calling python cli.py directly.
-
-    If you install this as a package (e.g. via setup.py/pyproject.toml),
-    you could have a console_script entry point that calls main().
+    Removes a tool package from the specified scope.
     """
-    app()
+    scope = ctx.obj["scope"]
+    registry_manager: Registry = ctx.obj["registry"]
+    pkg_manager: PackageManager = ctx.obj["pkg_manager"]
+    pkg_info = registry_manager.get_package(command)
+    if not pkg_info:
+        typer.echo(f"Tool '{command}' not found in {scope} registry.")
+        raise typer.Exit(code=1)
+    pkg_location = Path(pkg_info["location"])
+    if pkg_manager.delete_package(pkg_location):
+        registry_manager.delete_package(pkg_info["command"])
+        for s in registry_manager.list_scripts(pkg_info["command"]):
+            registry_manager.delete_script(pkg_info["command"], s["script"])
+        typer.echo(f"Tool '{registry_manager}' removed from {scope} registry.")
+    else:
+        typer.echo(f"Failed to remove tool '{command}'.")
 
+
+@tool_app.command("move")
+def tool_move(
+    tool_command: str = typer.Argument(..., help="Unique tool command to move"),
+    to: str = typer.Option(..., "--to", help="Target registry: user or workspace"),
+):
+    """
+    Moves a tool package from one registry to the other (user ⇄ workspace).
+    Determines the tool's current registry, checks that the target differs from it,
+    copies the tool package to the target, adds it to the target registry, and removes
+    the package from the source registry and disk.
+    """
+    # Instantiate both registries
+    user_registry = Registry(USER_REGISTRY_DIR)
+    workspace_registry = Registry(WORKSPACE_REGISTRY_DIR)
+
+    # Determine source registry
+    src_registry = None
+    pkg_info = user_registry.get_package(tool_command)
+    if pkg_info:
+        src_registry = user_registry
+    else:
+        pkg_info = workspace_registry.get_package(tool_command)
+        if pkg_info:
+            src_registry = workspace_registry
+    if not src_registry or not pkg_info:
+        typer.echo(f"Tool '{tool_command}' not found in any registry.")
+        raise typer.Exit(code=1)
+
+    # Determine target registry based on the 'to' option
+    to_lower = to.lower()
+    if to_lower not in ("user", "workspace"):
+        typer.echo("Invalid target registry specified. Choose 'user' or 'workspace'.")
+        raise typer.Exit(code=1)
+    target_registry = user_registry if to_lower == "user" else workspace_registry
+
+    # Ensure source and target are not the same
+    if src_registry == target_registry:
+        typer.echo(f"Tool '{tool_command}' is already in the {to_lower} registry.")
+        raise typer.Exit(code=1)
+
+    # Prepare source and target paths
+    current_location = Path(pkg_info["location"])
+    target_tools_dir = target_registry.registry_path / "tools"
+    target_tools_dir.mkdir(parents=True, exist_ok=True)
+    target_location = target_tools_dir / current_location.name
+
+    # Copy the package to the target
+    try:
+        shutil.copytree(current_location, target_location)
+    except Exception as e:
+        typer.echo(f"Error copying tool folder: {e}")
+        raise typer.Exit(code=1)
+
+    # Import the package from the new location and add it to the target registry
+    pkg_manager = PackageManager(target_registry.registry_path / "tools")
+    try:
+        new_pkg = pkg_manager.import_package(target_location)[0]
+    except Exception as e:
+        typer.echo(f"Error importing moved tool: {e}")
+        raise typer.Exit(code=1)
+
+    target_registry.add_package(
+        new_pkg.command,
+        new_pkg.name,
+        new_pkg.description,
+        str(new_pkg.location),
+        new_pkg.dependencies,
+    )
+    for script_name, script in new_pkg.scripts.items():
+        target_registry.add_script(new_pkg.command, script_name, script.to_dict())
+
+    # Remove the tool from the source registry and delete its folder
+    src_registry.delete_package(pkg_info["command"])
+    for s in src_registry.list_scripts(pkg_info["command"]):
+        src_registry.delete_script(pkg_info["command"], s["script"])
+    try:
+        shutil.rmtree(current_location)
+    except Exception as e:
+        typer.echo(f"Error removing source tool folder: {e}")
+        # Not an immediate exit - warn and continue
+
+    typer.echo(f"Tool '{tool_command}' successfully moved to the {to_lower} registry.")
+
+
+@tool_app.command("export")
+def tool_export(
+    ctx: typer.Context,
+    tool_command: str = typer.Argument(..., help="Unique tool command to export"),
+    output: Path = typer.Argument(..., help="Output zip archive path"),
+):
+    """
+    Exports a tool package as a ZIP archive.
+    """
+    scope = ctx.obj["scope"]
+    registry_manager: Registry = ctx.obj["registry"]
+    pkg_manager: PackageManager = ctx.obj["pkg_manager"]
+    pkg_info = registry_manager.get_package(tool_command)
+    if not pkg_info:
+        typer.echo(f"Tool '{tool_command}' not found in {scope} registry.")
+        raise typer.Exit(code=1)
+    pkg_location = Path(pkg_info["location"])
+    output = (Path.cwd() / output).resolve()
+    pkg_manager.export_package(pkg_location, output)
+    typer.echo(f"Tool '{tool_command}' exported to {output}.")
+
+
+@tool_app.command("customize")
+def tool_customize(
+    tool_command: str = typer.Argument(..., help="Unique tool command to customize"),
+    new_command: Optional[str] = typer.Option(
+        None, "--rename", help="New command name for the customized tool"
+    ),
+):
+    """
+    Copies a tool package from the user registry to the workspace for customization.
+    Optionally renames the tool command.
+    """
+    user_registry = Registry(USER_REGISTRY_DIR)
+    workspace_registry = Registry(WORKSPACE_REGISTRY_DIR)
+    pkg_manager = PackageManager(WORKSPACE_REGISTRY_DIR / "tools")
+    pkg_info = user_registry.get_package(tool_command)
+    if not pkg_info:
+        typer.echo(f"Tool '{tool_command}' not found in user registry.")
+        raise typer.Exit(code=1)
+    pkg_location = Path(pkg_info["location"])
+    new_pkg = pkg_manager.import_package(pkg_location)[0]
+    if new_command:
+        new_pkg.command = new_command
+    workspace_registry.add_package(
+        new_pkg.command,
+        new_pkg.name,
+        new_pkg.description,
+        str(new_pkg.location),
+        new_pkg.dependencies,
+    )
+    for script_name, script in new_pkg.scripts.items():
+        workspace_registry.add_script(new_pkg.command, script_name, script.to_dict())
+    typer.echo(
+        f"Tool '{tool_command}' customized to '{new_pkg.command}' in workspace registry."
+    )
+
+
+@tool_app.command("update")
+def tool_update(
+    ctx: typer.Context,
+    tool_command: Optional[str] = typer.Argument(
+        None,
+        help="Unique tool command to update. If omitted, update all tools in the indicated scope.",
+    ),
+    manifest: Optional[Path] = typer.Option(
+        None,
+        "--manifest",
+        help="Path to updated manifest file (used for a specific tool if provided)",
+    ),
+):
+    """
+    Updates tool package(s) using an updated manifest file.
+    If a tool_command is provided, only that tool is updated (using the supplied manifest if provided,
+    or its current manifest location otherwise). If no tool_command is provided, all packages in the
+    indicated scope will be updated from their existing locations.
+    """
+    scope = ctx.obj["scope"]
+    registry: Registry = ctx.obj["registry"]
+    pkg_manager: PackageManager = ctx.obj["pkg_manager"]
+
+    def update_single_tool(command: str) -> None:
+        pkg_info = registry.get_package(command)
+        if not pkg_info:
+            typer.echo(f"Tool '{command}' not found in {scope} registry.")
+            return
+        pkg_location = Path(pkg_info["location"])
+        update_path = manifest if manifest else pkg_location
+        try:
+            new_pkg = pkg_manager.import_package(update_path)[0]
+        except Exception as e:
+            typer.echo(f"Error updating tool '{command}': {e}")
+            return
+        registry.update_package(
+            new_pkg.command,
+            new_pkg.name,
+            new_pkg.description,
+            str(new_pkg.location),
+            new_pkg.dependencies,
+        )
+        for script_name, script in new_pkg.scripts.items():
+            registry.update_script(new_pkg.command, script_name, script.to_dict())
+        typer.echo(f"Tool '{command}' updated in {scope} registry.")
+
+    if tool_command:
+        update_single_tool(tool_command)
+    else:
+        all_packages = registry.list_packages()
+        if not all_packages:
+            typer.echo(f"No tools found in {scope} registry to update.")
+            raise typer.Exit(code=0)
+        for pkg in all_packages:
+            update_single_tool(pkg["command"])
+
+
+# =====================================================
+# Script Execution & Utility Commands
+# =====================================================
+@app.command("do")
+def run_script(
+    tool_command: str = typer.Argument(..., help="Unique tool command"),
+    script_name: str = typer.Argument(..., help="Name of the script to execute"),
+    scope: str = typer.Option(
+        "both",
+        "--scope",
+        help="Registry scope to search for the script: 'workspace', 'user', or 'both' (default both)",
+    ),
+    extra_args: List[str] = typer.Argument(None, help="Extra arguments for the script"),
+):
+    """
+    Executes a script from an installed tool package.
+    Tries the specified registry scope (workspace, user, or both).
+    If the script is not found but the package exists, shows available scripts.
+    """
+    scope = scope.lower()
+    # Validate scope option and determine which registries to search.
+    if scope not in ("workspace", "user", "both"):
+        typer.echo("Invalid scope. Choose from 'workspace', 'user', or 'both'.")
+        raise typer.Exit(code=1)
+
+    workspace_registry = Registry(WORKSPACE_REGISTRY_DIR)
+    user_registry = Registry(USER_REGISTRY_DIR)
+
+    registries = []
+    if scope == "workspace":
+        registries = [workspace_registry]
+    elif scope == "user":
+        registries = [user_registry]
+    else:  # both
+        registries = [workspace_registry, user_registry]
+
+    # Try to get the script info from the selected registries.
+    script_info = None
+    pkg_info = None
+    for reg in registries:
+        script_info = reg.get_script(tool_command, script_name)
+        if script_info:
+            pkg_info = reg.get_package(tool_command)
+            break
+
+    if script_info and pkg_info:
+        try:
+            # Build the Script instance from the stored dictionary.
+            script = Script.from_dict(script_info)
+            base_dir = Path(pkg_info["location"])
+            # Execute the script using its built-in execute functionality.
+            result = script.execute(base_dir, extra_args)
+            typer.echo(f"Command executed with return code {result.returncode}")
+        except Exception as err:
+            typer.echo(f"Error executing script: {err}")
+            raise typer.Exit(code=1)
+    else:
+        # If script not found, list all available scripts for the tool in the selected scope(s).
+        available_scripts = set()
+        tool_found = False
+        for reg in registries:
+            pkg = reg.get_package(tool_command)
+            if pkg:
+                tool_found = True
+                for scr in reg.list_scripts(tool_command):
+                    available_scripts.add(scr.get("script"))
+        if tool_found:
+            typer.echo(
+                f"Script '{script_name}' not found for tool '{tool_command}'. "
+                f"Available scripts: {sorted(available_scripts)}"
+            )
+        else:
+            typer.echo(
+                f"Tool '{tool_command}' not found in the specified scope '{scope}'."
+            )
+        raise typer.Exit(code=1)
+
+
+@app.command("run")
+def run_workspace(
+    script_name: str = typer.Argument(..., help="Name of the script to execute"),
+    extra_args: List[str] = typer.Argument(None, help="Extra arguments for the script"),
+):
+    """
+    Executes a script from the workspace package using the PackageBuilder.
+    """
+    workspace_file = find_file_type("manifest", WORKSPACE_APP_DIR)
+    if not workspace_file.exists():
+        typer.echo("No workspace file found in the current directory.")
+        typer.echo("Run 'devt project init' to create a new workspace.")
+        raise typer.Exit(code=1)
+
+    try:
+        # Build the package from the workspace directory using PackageBuilder.
+        pb = PackageBuilder(package_path=workspace_file.parent)
+        if script_name not in pb.scripts:
+            typer.echo(f"Script '{script_name}' not found in the workspace package.")
+            raise typer.Exit(code=1)
+        script = pb.scripts[script_name]
+    except Exception as e:
+        typer.echo(f"Error building workspace package: {e}")
+        raise typer.Exit(code=1)
+
+    base_dir = workspace_file.parent.resolve()
+    try:
+        result = script.execute(base_dir, extra_args=extra_args)
+        typer.echo(f"Command executed with return code {result.returncode}")
+    except Exception as e:
+        typer.echo(f"Error executing script: {e}")
+        raise typer.Exit(code=1)
+
+
+# Standardized Tool Scripts (shorthand commands)
+@app.command("install")
+def install(
+    tool_commands: List[str] = typer.Argument(..., help="Tool commands to install"),
+    scope: str = typer.Option(
+        "both",
+        "--scope",
+        help="Registry scope to search for the script: 'workspace', 'user', or 'both' (default: both)",
+    ),
+):
+    """
+    Runs the 'install' script for each given tool.
+    """
+    for tool_command in tool_commands:
+        run_script(tool_command, "install", scope=scope, extra_args=[])
+
+
+@app.command("uninstall")
+def uninstall(
+    tool_commands: List[str] = typer.Argument(..., help="Tool commands to uninstall"),
+    scope: str = typer.Option(
+        "both",
+        "--scope",
+        help="Registry scope to search for the script: 'workspace', 'user', or 'both' (default: both)",
+    ),
+):
+    """
+    Runs the 'uninstall' script for each given tool.
+    """
+    for tool_command in tool_commands:
+        run_script(tool_command, "uninstall", scope=scope, extra_args=[])
+
+
+@app.command("upgrade")
+def upgrade(
+    tool_commands: List[str] = typer.Argument(..., help="Tool commands to upgrade"),
+    scope: str = typer.Option(
+        "both",
+        "--scope",
+        help="Registry scope to search for the script: 'workspace', 'user', or 'both' (default: both)",
+    ),
+):
+    """
+    Runs the 'upgrade' script for each given tool.
+    """
+    for tool_command in tool_commands:
+        run_script(tool_command, "upgrade", scope=scope, extra_args=[])
+
+
+@app.command("version")
+def version(
+    tool_commands: List[str] = typer.Argument(
+        ..., help="Tool commands to display version"
+    ),
+    scope: str = typer.Option(
+        "both",
+        "--scope",
+        help="Registry scope to search for the script: 'workspace', 'user', or 'both' (default: both)",
+    ),
+):
+    """
+    Runs the 'version' script for each given tool.
+    """
+    for tool_command in tool_commands:
+        run_script(tool_command, "version", scope=scope, extra_args=[])
+
+
+@app.command("test")
+def test(
+    tool_commands: List[str] = typer.Argument(..., help="Tool commands to test"),
+    scope: str = typer.Option(
+        "both",
+        "--scope",
+        help="Registry scope to search for the script: 'workspace', 'user', or 'both' (default: both)",
+    ),
+):
+    """
+    Runs tool-specific tests for each given tool.
+    """
+    for tool_command in tool_commands:
+        run_script(tool_command, "test", scope=scope, extra_args=[])
+
+
+# =====================================================
+# Template for workspace initialization
+# =====================================================
+WORKSPACE_TEMPLATE = {
+    "name": "My Workspace",
+    "description": "A basic workspace.",
+    "dependencies": {},
+    "scripts": {"test": "echo workspace test"},
+}
+
+
+# =====================================================
+# Project-Level Commands
+# =====================================================
+@project_app.command("init")
+def project_init(
+    file_format: str = typer.Option(
+        "yaml",
+        "--format",
+        help="File format to initialize the workspace. Options: 'yaml' (default) or 'json'.",
+    )
+):
+    """
+    Initializes a new development environment in the current project.
+    Creates a workspace file (YAML by default, but JSON if specified) with a basic template.
+    """
+    # Check if a workspace file already exists using find_file_type.
+    workspace_file = find_file_type("workspace", WORKSPACE_APP_DIR)
+    if workspace_file.exists():
+        typer.echo("Project already initialized.")
+        raise typer.Exit(code=0)
+
+    file_format_lower = file_format.lower()
+    if file_format_lower == "json":
+        workspace_file = WORKSPACE_APP_DIR / "workspace.json"
+        workspace_content = json.dumps(WORKSPACE_TEMPLATE, indent=4)
+    else:
+        workspace_file = WORKSPACE_APP_DIR / "workspace.yaml"
+        workspace_content = yaml.dump(WORKSPACE_TEMPLATE, sort_keys=False)
+    workspace_file.write_text(workspace_content)
+    typer.echo(
+        f"Project initialized successfully with {file_format_lower.upper()} format."
+    )
+
+
+@project_app.command("list")
+def project_list():
+    """
+    Displays all tools registered in the project's workspace.json.
+    """
+    workspace_file = Path("workspace.json")
+    if workspace_file.exists():
+        typer.echo(workspace_file.read_text())
+    else:
+        typer.echo("No workspace.json found. Run 'devt project init' first.")
+
+
+@project_app.command("info")
+def project_info():
+    """
+    Displays project configuration settings.
+    """
+    workspace_file = Path("workspace.json")
+    if workspace_file.exists():
+        typer.echo(workspace_file.read_text())
+    else:
+        typer.echo("No workspace.json found.")
+
+
+@project_app.command("install")
+def project_install():
+    """
+    Installs all tools listed in workspace.json.
+    """
+    workspace_file = Path("workspace.json")
+    if not workspace_file.exists():
+        typer.echo("No workspace.json found. Run 'devt project init' first.")
+        raise typer.Exit(code=1)
+    try:
+        workspace = json.loads(workspace_file.read_text())
+        tools = workspace.get("tools", [])
+        for tool in tools:
+            run_script(tool, "install", extra_args=[])
+        typer.echo("All project tools installed successfully.")
+    except Exception as e:
+        typer.echo(f"Failed to install project tools: {e}")
+
+
+@project_app.command("run")
+def project_run(script: str = typer.Argument(..., help="Script name to run globally")):
+    """
+    Executes a global script defined in workspace.json.
+    """
+    workspace_file = find_file_type("workspace", WORKSPACE_APP_DIR)
+    if not workspace_file.exists():
+        typer.echo("No workspace.json found. Run 'devt project init' first.")
+        raise typer.Exit(code=1)
+    try:
+        workspace = json.loads(workspace_file.read_text())
+        scripts = workspace.get("scripts", {})
+        if script not in scripts:
+            typer.echo(f"Script '{script}' not found in workspace.json.")
+            raise typer.Exit(code=1)
+        typer.echo(f"Executing project script: {scripts[script]}")
+        # Optionally, you can use ManifestRunner to execute the script.
+    except Exception as e:
+        typer.echo(f"Failed to run project script: {e}")
+
+
+@project_app.command("reset")
+def project_reset(force: bool = typer.Option(False, "--force", help="Force removal")):
+    """
+    Removes all project-level tools.
+    """
+    workspace_file = Path("workspace.json")
+    if workspace_file.exists():
+        workspace_file.unlink()
+        typer.echo("Project reset successfully.")
+    else:
+        typer.echo("No workspace.json found.")
+
+
+# =====================================================
+# Meta Commands
+# =====================================================
+@self_app.command("version")
+def self_version():
+    """
+    Displays the current version of DevT.
+    """
+    typer.echo(f"DevT version: {__version__}")
+
+
+@self_app.command("upgrade")
+def self_upgrade():
+    """
+    Checks for updates and installs the latest version of DevT.
+    """
+    # This is a placeholder for actual upgrade logic.
+    typer.echo("DevT upgraded successfully.")
+
+
+@app.command("help")
+def help_command(command: Optional[str] = None):
+    """
+    Displays documentation for DevT commands.
+    """
+    if command:
+        typer.echo(f"Help for command: {command}")
+    else:
+        typer.echo(app.get_help())
+
+
+# Add sub-apps to the main app
+app.add_typer(repo_app, name="repo")
+app.add_typer(tool_app, name="tool")
+app.add_typer(project_app, name="project")
+app.add_typer(self_app, name="self")
 
 if __name__ == "__main__":
-    setup_environment()
-    entry()
+    app()

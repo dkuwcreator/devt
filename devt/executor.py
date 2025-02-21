@@ -40,7 +40,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from devt.utils import merge_configs, resolve_rel_path
+from utils import merge_configs, resolve_rel_path
 
 # Configure a basic logger (logs at INFO level by default)
 logger = logging.getLogger(__name__)
@@ -111,6 +111,7 @@ def to_tokens(
     if isinstance(val, list):
         return val
     return shlex.split(val, posix=posix) if split else [val]
+
 
 class ManifestRunner:
     """Class-based runner that loads and interprets a YAML manifest."""
