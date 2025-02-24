@@ -80,6 +80,7 @@ def tool_import(
         destination_dir = path.parent / path.stem
         path = pkg_manager.unpack_package(path, destination_dir)
 
+    print(f"Importing tool package(s) from: {path}")
     packages = pkg_manager.import_package(path, group=group, force=force)
     count = 0
     for pkg in packages:
@@ -116,31 +117,56 @@ def tool_list(
     location: str = typer.Option(None, help="Filter by tool location (partial match)"),
     group: str = typer.Option(None, help="Filter by tool group"),
     active: bool = typer.Option(None, help="Filter by active status"),
+    scope: str = typer.Option(
+        None, "--scope", help="Scope to filter: 'user' or 'workspace'. If omitted, both are shown."
+    ),
 ):
     """
     Lists all tools in the registry, with filtering options.
+    By default, both user and workspace scopes are displayed.
     """
-    package_registry: PackageRegistry = ctx.obj["package_registry"]
-    tools = package_registry.list_packages(
-        command=command,
-        name=name,
-        description=description,
-        location=location,
-        group=group,
-        active=active,
-    )
-    if tools:
-        for tool in tools:
-            typer.echo(
-                f"Command:     {tool.get('command')}\n"
-                f"Name:        {tool.get('name')}\n"
-                f"Description: {tool.get('description')}\n"
-                f"Location:    {tool.get('location')}\n"
-                f"Group:       {tool.get('group')}\n"
-                f"Active:      {tool.get('active')}\n"
-                "------------------------------------"
-            )
+    scopes_to_query = {}
+    if scope:
+        scope_lower = scope.lower()
+        if scope_lower not in ("user", "workspace"):
+            typer.echo("Invalid scope provided. Choose 'user' or 'workspace'.")
+            raise typer.Exit(code=1)
+        scopes_to_query[scope_lower] = (
+            PackageRegistry(create_db_engine(registry_path=USER_REGISTRY_DIR))
+            if scope_lower == "user"
+            else PackageRegistry(create_db_engine(registry_path=WORKSPACE_REGISTRY_DIR))
+        )
     else:
+        scopes_to_query["user"] = PackageRegistry(create_db_engine(registry_path=USER_REGISTRY_DIR))
+        scopes_to_query["workspace"] = PackageRegistry(create_db_engine(registry_path=WORKSPACE_REGISTRY_DIR))
+
+    found_any = False
+    for sc, package_registry in scopes_to_query.items():
+        tools = package_registry.list_packages(
+            command=command,
+            name=name,
+            description=description,
+            location=location,
+            group=group,
+            active=active,
+        )
+        typer.echo(f"\nScope: {sc.capitalize()}")
+        typer.echo("------------------------------------")
+        if tools:
+            found_any = True
+            for tool in tools:
+                typer.echo(
+                    f"Command:     {tool.get('command')}\n"
+                    f"Name:        {tool.get('name')}\n"
+                    f"Description: {tool.get('description')}\n"
+                    f"Location:    {tool.get('location')}\n"
+                    f"Group:       {tool.get('group')}\n"
+                    f"Active:      {tool.get('active')}\n"
+                    "------------------------------------"
+                )
+        else:
+            typer.echo("No tools found in this scope.")
+    if not found_any:
         typer.echo("No tools found.")
 
 
@@ -415,8 +441,6 @@ def tool_sync(ctx: typer.Context):
     Syncs active tool packages from the registry by re-importing them
     from their location on disk.
     """
-    from devt.config_manager import USER_REGISTRY_DIR, WORKSPACE_REGISTRY_DIR
-
     registries = {}
     for scope, registry_dir in [("user", USER_REGISTRY_DIR), ("workspace", WORKSPACE_REGISTRY_DIR)]:
         engine = create_db_engine(registry_path=registry_dir)
@@ -434,8 +458,7 @@ def tool_sync(ctx: typer.Context):
             pkg_location = Path(pkg["location"])
             pm = PackageManager(reg["tools_dir"])
             try:
-                packages = pm.import_package(pkg_location, pkg["group"], force=True)
-                new_pkg = packages[0]
+                new_pkg = pm.update_package(pkg_location, pkg["group"])
             except Exception as e:
                 typer.echo(f"Error importing package from {pkg_location}: {e}")
                 continue

@@ -29,6 +29,9 @@ class PackageManager:
         """
         Copy the entire package directory from source to destination.
         """
+        if source == destination:
+            logger.warning("Source and destination are the same: %s", source)
+            return destination
         logger.info("Copying package directory '%s' to '%s'", source, destination)
         shutil.copytree(source, destination)
         logger.info("Package directory copied successfully.")
@@ -61,10 +64,10 @@ class PackageManager:
         Import package(s) from the specified source and return a list of ToolPackage objects.
         """
         packages: List[ToolPackage] = []
-        effective_group = group or (source.stem if source.is_file() else source.name)
         errors: List[str] = []
 
         if source.is_file() and source.suffix in [".json", ".yaml", ".yml"]:
+            effective_group = group or "default"
             try:
                 dest = self.move_package_to_tools_dir(source.parent, effective_group, force)
                 pkg = PackageBuilder(dest, effective_group).build_package()
@@ -78,6 +81,7 @@ class PackageManager:
             # First try the root directory for a manifest
             manifest = find_file_type("manifest", source)
             if manifest:
+                effective_group = group or "default"
                 try:
                     dest = self.move_package_to_tools_dir(source, effective_group, force)
                     pkg = PackageBuilder(dest, effective_group).build_package()
@@ -87,6 +91,7 @@ class PackageManager:
                     logger.error(error_msg)
                     errors.append(error_msg)
             else:
+                effective_group = group or source.name
                 for mf in source.rglob("manifest.*"):
                     try:
                         dest = self.move_package_to_tools_dir(mf.parent, effective_group, force)
@@ -106,6 +111,19 @@ class PackageManager:
         else:
             logger.info("Successfully imported %d package(s) from %s", len(packages), source)
         return packages
+    
+    def update_package(self, package_dir: Path, group: str = "default") -> ToolPackage:
+        """
+        Update a package directory by rebuilding the ToolPackage object.
+        """
+        try:
+            logger.info("Updating package directory: %s", package_dir)
+            pkg = PackageBuilder(package_dir, group).build_package()
+            logger.info("Package directory updated successfully.")
+            return pkg
+        except Exception as e:
+            logger.error("Error updating package directory: %s", e)
+            raise
 
     def delete_package(self, package_dir: Path) -> bool:
         """
@@ -121,7 +139,7 @@ class PackageManager:
                 return False
         else:
             logger.warning("Package directory '%s' does not exist.", package_dir)
-            return False
+            return True
 
     def export_package(self, package_location: Path, output_path: Path) -> Path:
         """
