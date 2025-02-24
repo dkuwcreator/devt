@@ -343,6 +343,9 @@ def tool_customize(
     new_command: str = typer.Option(
         None, "--rename", help="New command name for the customized tool"
     ),
+    force: bool = typer.Option(
+        False, "--force", help="Force overwrite if the package already exists"
+    ),
 ):
     """
     Copies a tool package from the user registry to the workspace for customization.
@@ -359,9 +362,16 @@ def tool_customize(
         typer.echo(f"Tool '{tool_command}' not found in user registry.")
         raise typer.Exit(code=1)
     pkg_location = Path(pkg_info["location"])
-    new_pkg = pkg_manager.import_package(pkg_location, pkg_info["group"])[0]
+    new_pkg = pkg_manager.import_package(pkg_location, pkg_info["group"], force)
+    if not new_pkg:
+        typer.echo(f"Failed to customize tool '{tool_command}'.")
+    else:
+        new_pkg = new_pkg[0]
     if new_command:
         new_pkg.command = new_command
+    else:
+        # Set original package to inactive
+        user_package_registry.update_package(tool_command, active=False)
     workspace_package_registry.add_package(
         new_pkg.command,
         new_pkg.name,

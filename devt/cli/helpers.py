@@ -37,6 +37,10 @@ def setup_app_context(ctx: typer.Context, scope: str, log_level: str, log_format
         log_level (str): The desired logging level (e.g., DEBUG, INFO).
         log_format (str): The logging format type (e.g., default or detailed).
     """
+    if scope.lower() not in ["user", "workspace"]:
+        raise typer.BadParameter("Scope must be either 'user' or 'workspace'.")
+    if log_level not in ["DEBUG", "INFO", "WARNING", "ERROR"]:
+        raise typer.BadParameter("Log level must be one of DEBUG, INFO, WARNING, or ERROR.")
     # Ensure required directories exist and the environment is set up.
     setup_environment()
 

@@ -214,25 +214,29 @@ class PackageRegistry(BaseRegistry):
             packages = query.all()
             return [self._pack_package_data(pkg) for pkg in packages]
 
-    def update_package(
-        self,
-        command: str,
-        name: str,
-        description: str,
-        location: str,
-        dependencies: Dict[str, Any],
-        active: bool = True,
-    ) -> None:
-        logger.info(f"Updating package '{command}'.")
+    def update_package(self, command: str, **kwargs) -> None:
+        """
+        Generalized update for a package. This method now dynamically updates any attribute present
+        in the PackageModel. Any keys in kwargs that do not correspond to a valid column
+        in PackageModel will be ignored.
+        """
+        logger.info(f"Updating package '{command}' with updates: {kwargs}.")
         with session_scope(self.Session) as session:
             pkg = session.query(PackageModel).filter_by(command=command).first()
             if not pkg:
                 raise ValueError("Package not found")
-            pkg.name = name
-            pkg.description = description
-            pkg.location = location
-            pkg.dependencies = dependencies if dependencies else None
-            pkg.active = active
+
+            # Dynamically obtain allowed column names from PackageModel.
+            valid_columns = {col.name for col in PackageModel.__table__.columns}
+            for key, value in kwargs.items():
+                if key in valid_columns:
+                    if key == "dependencies":
+                        # Store None when dependencies is empty or falsy.
+                        setattr(pkg, key, value if value else None)
+                    else:
+                        setattr(pkg, key, value)
+                else:
+                    logger.warning(f"Key '{key}' is not a recognized package field and will be ignored.")
             pkg.last_update = datetime.now()
 
     def delete_package(self, command: str) -> None:

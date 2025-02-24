@@ -431,7 +431,7 @@ def repo_remove(
     remove_packages_and_scripts()
 
     try:
-        repo_url = repository_registry.get_repositories_by_name(name=repo_name)
+        repo_url = repository_registry.get_repo_by_name(name=repo_name)
         repository_registry.delete_repository(repo_url)
         typer.echo(f"Repository '{repo_name}' removed from the registry.")
     except Exception as e:
