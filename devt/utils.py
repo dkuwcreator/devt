@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 from jsonschema import ValidationError, validate
+import typer
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -183,3 +184,29 @@ def validate_manifest(manifest: dict) -> bool:
     except ValidationError as e:
         logger.error("Manifest validation error: %s", e)
         return False
+
+
+def print_table(headers: List[str], rows: List[List[str]]) -> None:
+    """Prints a formatted table given headers and row data."""
+    col_widths = [
+        max(len(headers[i]), max((len(row[i]) for row in rows), default=0))
+        for i in range(len(headers))
+    ]
+    separator = "+" + "+".join("-" * (w + 2) for w in col_widths) + "+"
+    header_line = (
+        "|"
+        + "|".join(f" {headers[i].ljust(col_widths[i])} " for i in range(len(headers)))
+        + "|"
+    )
+    typer.echo(separator)
+    typer.echo(header_line)
+    typer.echo(separator)
+    for row in rows:
+        row_line = (
+            "|"
+            + "|".join(f" {row[i].ljust(col_widths[i])} " for i in range(len(row)))
+            + "|"
+        )
+        typer.echo(row_line)
+    typer.echo(separator)
+

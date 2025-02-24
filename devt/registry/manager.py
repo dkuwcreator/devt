@@ -1,87 +1,61 @@
-# registry_manager.py
+# devt/registry_manager.py
+from contextlib import contextmanager
 from datetime import datetime
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Generator
-from contextlib import contextmanager
 
-from sqlalchemy import Boolean, create_engine, Column, String, Text, DateTime, JSON
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from .models import Base, ScriptModel, PackageModel, RepositoryModel
+from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger(__name__)
-Base = declarative_base()
 
-
-class ScriptModel(Base):
-    __tablename__ = "scripts"
-    # Composite primary key: (command, script_name)
-    command = Column(String, primary_key=True)
-    script_name = Column(String, primary_key=True)
-    args = Column(JSON, nullable=False)
-    cwd = Column(String, nullable=False)
-    env = Column(JSON, nullable=True)
-    shell = Column(String, nullable=True)
-    kwargs = Column(JSON, nullable=True)
-
-
-class PackageModel(Base):
-    __tablename__ = "packages"
-    command = Column(String, primary_key=True)  # Unique identifier
-    name = Column(String, nullable=False)
-    description = Column(Text, nullable=True)
-    location = Column(String, nullable=False)
-    dependencies = Column(JSON, nullable=True)
-    group = Column(String, nullable=True)
-    active = Column(Boolean, nullable=False, default=True)
-    install_date = Column(DateTime, nullable=False)
-    last_update = Column(DateTime, nullable=False)
-
-
-class RepositoryModel(Base):
-    __tablename__ = "repositories"
-    url = Column(String, primary_key=True)  # Unique identifier
-    name = Column(String, nullable=False)
-    branch = Column(String, nullable=True)
-    location = Column(String, nullable=False)
-    auto_sync = Column(Boolean, nullable=False, default=False)
-    install_date = Column(DateTime, nullable=False)
-    last_update = Column(DateTime, nullable=False)
-
+def create_db_engine(registry_path: Path) -> Any:
+    """
+    Creates and initializes the database engine.
+    """
+    registry_path.mkdir(parents=True, exist_ok=True)
+    db_file = (registry_path / "registry.db").resolve()
+    db_uri = f"sqlite:///{db_file}"
+    engine = create_engine(db_uri, echo=False, future=True)
+    Base.metadata.create_all(engine)
+    logger.info(f"Registry initialized with database at {db_file}")
+    return engine
 
 @contextmanager
 def session_scope(Session) -> Generator[Any, None, None]:
+    """
+    Provides a transactional scope for a series of operations.
+    """
     session = Session()
     try:
         yield session
         session.commit()
-    except Exception as e:
+    except Exception as exc:
         session.rollback()
-        raise e
+        raise exc
     finally:
         session.close()
 
-
-class Registry:
-    def __init__(self, registry_path: Path) -> None:
-        registry_path.mkdir(parents=True, exist_ok=True)
-        self.registry_path = registry_path
-        db_file = (registry_path / "registry.db").resolve()
-        db_uri = f"sqlite:///{db_file}"
-        self.engine = create_engine(db_uri, echo=False, future=True)
-        Base.metadata.create_all(self.engine)
+class BaseRegistry:
+    """
+    Base class for registry management.
+    """
+    def __init__(self, engine: Any) -> None:
+        self.engine = engine
         self.Session = sessionmaker(bind=self.engine, future=True)
-        logger.info(f"Registry initialized with database at {db_file}")
 
-    # -----------------------
-    # Script-related methods
-    # -----------------------
+class ScriptRegistry(BaseRegistry):
+    """
+    Manages all script-related operations.
+    """
     def _unpack_script_data(self, script: dict) -> dict:
-        # Validate required keys and provide defaults if necessary.
         if "args" not in script:
             raise ValueError("Missing required key 'args' in script configuration.")
-        if "cwd" not in script:
-            # Default to current directory if not provided
-            script["cwd"] = "."
+        script.setdefault("cwd", ".")
         return {
             "args": script["args"],
             "cwd": str(script["cwd"]),
@@ -117,17 +91,11 @@ class Registry:
     def get_script(self, command: str, script_name: str) -> Optional[dict]:
         logger.info(f"Retrieving script '{script_name}' for command '{command}'.")
         with self.Session() as session:
-            result = (
-                session.query(ScriptModel)
-                .filter_by(command=command, script_name=script_name)
-                .first()
-            )
+            result = session.query(ScriptModel).filter_by(
+                command=command, script_name=script_name
+            ).first()
             if result:
-                return {
-                    "command": command,
-                    "script": script_name,
-                    **self._pack_script_data(result),
-                }
+                return {"command": command, "script": script_name, **self._pack_script_data(result)}
             logger.info(f"Script '{script_name}' not found.")
             return None
 
@@ -136,11 +104,7 @@ class Registry:
         with self.Session() as session:
             results = session.query(ScriptModel).filter_by(command=command).all()
             return [
-                {
-                    "command": s.command,
-                    "script": s.script_name,
-                    **self._pack_script_data(s),
-                }
+                {"command": s.command, "script": s.script_name, **self._pack_script_data(s)}
                 for s in results
             ]
 
@@ -148,11 +112,9 @@ class Registry:
         logger.info(f"Updating script '{script_name}' for command '{command}'.")
         script_data = self._unpack_script_data(script)
         with session_scope(self.Session) as session:
-            instance = (
-                session.query(ScriptModel)
-                .filter_by(command=command, script_name=script_name)
-                .first()
-            )
+            instance = session.query(ScriptModel).filter_by(
+                command=command, script_name=script_name
+            ).first()
             if not instance:
                 raise ValueError("Script not found")
             instance.args = script_data["args"]
@@ -164,27 +126,24 @@ class Registry:
     def delete_script(self, command: str, script_name: str) -> None:
         logger.info(f"Deleting script '{script_name}' for command '{command}'.")
         with session_scope(self.Session) as session:
-            instance = (
-                session.query(ScriptModel)
-                .filter_by(command=command, script_name=script_name)
-                .first()
-            )
+            instance = session.query(ScriptModel).filter_by(
+                command=command, script_name=script_name
+            ).first()
             if not instance:
                 raise ValueError("Script not found")
             session.delete(instance)
 
-    # -------------------------
-    # Package-related methods
-    # -------------------------
+class PackageRegistry(BaseRegistry):
+    """
+    Manages all package-related operations.
+    """
     def _pack_package_data(self, package: PackageModel) -> Dict[str, Any]:
         return {
             "command": package.command,
             "name": package.name,
             "description": package.description,
             "location": package.location,
-            "dependencies": (
-                package.dependencies if package.dependencies is not None else {}
-            ),
+            "dependencies": package.dependencies if package.dependencies is not None else {},
             "group": package.group,
             "active": package.active,
             "install_date": package.install_date.isoformat(),
@@ -203,7 +162,6 @@ class Registry:
         **kwargs: Any,
     ) -> None:
         logger.info(f"Adding package '{command}'.")
-        # Validate required package fields.
         if not command or not name or not location:
             raise ValueError(
                 "Missing required package fields: command, name, and location must be provided."
@@ -256,14 +214,6 @@ class Registry:
             packages = query.all()
             return [self._pack_package_data(pkg) for pkg in packages]
 
-    def delete_package(self, command: str) -> None:
-        logger.info(f"Deleting package '{command}'.")
-        with session_scope(self.Session) as session:
-            pkg = session.query(PackageModel).filter_by(command=command).first()
-            if not pkg:
-                raise ValueError("Package not found")
-            session.delete(pkg)
-
     def update_package(
         self,
         command: str,
@@ -284,6 +234,14 @@ class Registry:
             pkg.dependencies = dependencies if dependencies else None
             pkg.active = active
             pkg.last_update = datetime.now()
+
+    def delete_package(self, command: str) -> None:
+        logger.info(f"Deleting package '{command}'.")
+        with session_scope(self.Session) as session:
+            pkg = session.query(PackageModel).filter_by(command=command).first()
+            if not pkg:
+                raise ValueError("Package not found")
+            session.delete(pkg)
 
     def deactivate_package(self, command: str) -> None:
         logger.info(f"Deactivating package '{command}'.")
@@ -307,11 +265,10 @@ class Registry:
             pkg = session.query(PackageModel).filter_by(command=command).first()
             return pkg.location if pkg else None
 
-
-    # ---------------------------
-    # Repository-related methods
-    # ---------------------------
-
+class RepositoryRegistry(BaseRegistry):
+    """
+    Manages all repository-related operations.
+    """
     def _pack_repo_data(self, repo: RepositoryModel) -> Dict[str, Any]:
         return {
             "url": repo.url,
@@ -323,31 +280,34 @@ class Registry:
             "last_update": repo.last_update.isoformat(),
         }
 
-    def add_repository(self, url: str, name: str, branch: str, location: str, auto_sync: bool = False) -> None:
+    def add_repository(
+        self, url: str, name: str, branch: str, location: str, auto_sync: bool = False
+    ) -> None:
         logger.info(f"Adding repository '{url}'.")
         now_dt = datetime.now()
-        with session_scope(self.Session) as session:
-            new_repo = RepositoryModel(
-                url=url,
-                name=name,
-                branch=branch,
-                location=location,
-                auto_sync=auto_sync,
-                install_date=now_dt,
-                last_update=now_dt,
-            )
-            session.add(new_repo)
+        try:
+            with session_scope(self.Session) as session:
+                new_repo = RepositoryModel(
+                    url=url,
+                    name=name,
+                    branch=branch,
+                    location=location,
+                    auto_sync=auto_sync,
+                    install_date=now_dt,
+                    last_update=now_dt,
+                )
+                session.add(new_repo)
+        except Exception as exc:
+            if isinstance(exc, IntegrityError):
+                logger.error(f"Integrity error: {exc}")
+                raise ValueError("Repository already exists") from exc
+            else:
+                raise exc
 
     def get_repository(self, url: str) -> Optional[Dict[str, Any]]:
         logger.info(f"Retrieving repository '{url}'.")
         with self.Session() as session:
             repo = session.query(RepositoryModel).filter_by(url=url).first()
-            return self._pack_repo_data(repo) if repo else None
-
-    def get_repositories_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        logger.info(f"Retrieving repository with name '{name}'.")
-        with self.Session() as session:
-            repo = session.query(RepositoryModel).filter(RepositoryModel.name.like(f"%{name}%")).first()
             return self._pack_repo_data(repo) if repo else None
 
     def list_repositories(
@@ -374,15 +334,9 @@ class Registry:
             repos = query.all()
             return [self._pack_repo_data(repo) for repo in repos]
 
-    def delete_repository(self, url: str) -> None:
-        logger.info(f"Deleting repository '{url}'.")
-        with session_scope(self.Session) as session:
-            repo = session.query(RepositoryModel).filter_by(url=url).first()
-            if not repo:
-                raise ValueError("Repository not found")
-            session.delete(repo)
-
-    def update_repository(self, url: str, name: str, branch: str, location: str, auto_sync: bool) -> None:
+    def update_repository(
+        self, url: str, name: str, branch: str, location: str, auto_sync: bool
+    ) -> None:
         logger.info(f"Updating repository '{url}'.")
         with session_scope(self.Session) as session:
             repo = session.query(RepositoryModel).filter_by(url=url).first()
@@ -394,6 +348,14 @@ class Registry:
             repo.auto_sync = auto_sync
             repo.last_update = datetime.now()
 
+    def delete_repository(self, url: str) -> None:
+        logger.info(f"Deleting repository '{url}'.")
+        with session_scope(self.Session) as session:
+            repo = session.query(RepositoryModel).filter_by(url=url).first()
+            if not repo:
+                raise ValueError("Repository not found")
+            session.delete(repo)
+
     def set_auto_sync(self, url: str, auto_sync: bool) -> None:
         logger.info(f"Setting auto-sync for repository '{url}'.")
         with session_scope(self.Session) as session:
@@ -404,20 +366,12 @@ class Registry:
 
     def get_repo_location(self, url: str) -> Optional[str]:
         logger.info(f"Retrieving location for repository '{url}'.")
-
         with self.Session() as session:
             repo = session.query(RepositoryModel).filter_by(url=url).first()
             return repo.location if repo else None
 
-    def get_auto_sync(self, url: str) -> Optional[bool]:
-        logger.info(f"Retrieving auto-sync for repository '{url}'.")
-
+    def get_repo_by_name(self, name: str) -> Optional[str]:
+        logger.info(f"Retrieving repository by name '{name}'.")
         with self.Session() as session:
-            repo = session.query(RepositoryModel).filter_by(url=url).first()
-            return repo.auto_sync if repo else None
-
-    def get_repo_name(self, url: str) -> Optional[str]:
-        logger.info(f"Retrieving name for repository '{url}'.")
-        with self.Session() as session:
-            repo = session.query(RepositoryModel).filter_by(url=url).first()
-            return repo.name if repo else None
+            repo = session.query(RepositoryModel).filter_by(name=name).first()
+            return repo.url if repo else None

@@ -12,7 +12,6 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from git import Repo
-
 from devt.utils import on_exc  # Requires GitPython: pip install GitPython
 
 logger = logging.getLogger(__name__)
@@ -40,22 +39,24 @@ class RepoManager:
             "Initialized RepoManager with repos directory at: %s", self.repos_dir
         )
 
-    def _get_repo_dir(self, repo_url: str) -> Path:
-        """
-        Derive the repository's local directory based on its URL.
+    def _get_repo_name(self, repo_url: str) -> str:
+        """Extracts a repository name from its URL."""
+        return Path(urlparse(repo_url).path).stem
 
-        Args:
-            repo_url (str): The URL of the repository.
+    def _resolve_repo_dir(self, repo_identifier: str) -> Path:
+        """Resolves the repository directory based on the identifier (URL, name, or path)."""
+        if repo_identifier.startswith(("http://", "https://", "git@")):
+            return self.repos_dir / self._get_repo_name(repo_identifier)
+        potential_path = Path(repo_identifier)
+        return (
+            potential_path.resolve()
+            if potential_path.is_absolute()
+            else (self.repos_dir / repo_identifier).resolve()
+        )
 
-        Returns:
-            Path: The local repository directory under the repos folder.
+    def sync_repo(self, repo_identifier: str, branch: str = None) -> tuple[Path, str, bool]:
         """
-        repo_name = Path(urlparse(repo_url).path).stem
-        return self.repos_dir / repo_name
-
-    def sync_repo(self, repo_identifier: str, branch: str = None) -> tuple[Path, str]:
-        """
-        Update an existing repository.
+        Update an existing repository and indicate if any changes were applied.
 
         The repo_identifier can be either a repository name (or relative directory under repos)
         or an absolute/local directory path. If a URL is provided instead, it will be
@@ -67,23 +68,17 @@ class RepoManager:
                                     and pull that branch. Defaults to None.
 
         Returns:
-            tuple[Path, str]: The local path to the repository and its effective branch.
+            tuple[Path, str, bool]:
+                - The local path to the repository.
+                - The effective branch.
+                - A boolean indicating whether changes were made.
 
         Raises:
             Exception: If the repository directory doesn't exist or update fails.
         """
-        # Determine the repository directory.
-        if repo_identifier.startswith(("http://", "https://", "git@")):
-            repo_dir = self._get_repo_dir(repo_identifier)
-        else:
-            potential_path = Path(repo_identifier)
-            if potential_path.is_absolute():
-                repo_dir = potential_path.resolve()
-            else:
-                repo_dir = (self.repos_dir / repo_identifier).resolve()
-
+        repo_dir = self._resolve_repo_dir(repo_identifier)
         if not repo_dir.exists():
-            raise Exception(f"Repository directory does not exist: {repo_dir}")
+            raise FileNotFoundError(f"Repository directory does not exist: {repo_dir}")
 
         try:
             repo = Repo(repo_dir)
@@ -93,23 +88,33 @@ class RepoManager:
                     repo_dir.name,
                 )
                 repo.git.reset("--hard")
-            if branch is not None:
-                if branch in [b.name for b in repo.branches]:
-                    repo.git.checkout(branch)
-                else:
-                    logger.warning(
-                        "Branch '%s' does not exist in repository '%s'. Updating the current branch instead.",
-                        branch, repo_dir.name
-                    )
-            logger.info("Updating repository %s...", repo_dir.name)
-            # Pull the specified branch if it exists; otherwise, pull the current branch.
+
+            available_branches = {b.name for b in repo.branches}
+            if branch and branch in available_branches:
+                repo.git.checkout(branch)
+            elif branch:
+                logger.warning(
+                    "Branch '%s' does not exist. Updating the current branch instead.",
+                    branch,
+                )
+
             current_branch = repo.active_branch.name
-            repo.remotes.origin.pull(branch if branch in [b.name for b in repo.branches] else current_branch)
-            effective_branch = repo.active_branch.name
+            commit_before = repo.head.commit.hexsha
+
+            logger.info("Updating repository %s...", repo_dir.name)
+            repo.remotes.origin.pull()
+            commit_after = repo.head.commit.hexsha
+            changes_made = commit_before != commit_after
+
+            if changes_made:
+                logger.info("Repository %s updated. New commit: %s", repo_dir.name, commit_after)
+            else:
+                logger.info("Repository %s is already up-to-date.", repo_dir.name)
+
+            return repo_dir, current_branch, changes_made
         except Exception as e:
             logger.error("Failed to update repository at %s: %s", repo_dir, e)
-            raise e
-        return repo_dir, effective_branch
+            raise
 
     def add_repo(self, repo_url: str, branch: str = None) -> tuple[Path, str]:
         """
@@ -125,19 +130,18 @@ class RepoManager:
         Raises:
             Exception: If cloning or updating fails.
         """
-        repo_dir = self._get_repo_dir(repo_url)
+        repo_dir = self._resolve_repo_dir(repo_url)
         if repo_dir.exists():
-            # If repository already exists, update it.
             logger.info("Repository %s already exists. Updating...", repo_dir.name)
-            return self.sync_repo(repo_url, branch=branch)
+            return self.sync_repo(repo_url, branch)
+
         try:
             logger.info("Cloning repository %s...", repo_url)
             repo = Repo.clone_from(repo_url, repo_dir, branch=branch)
-            effective_branch = repo.active_branch.name
+            return repo_dir, repo.active_branch.name
         except Exception as e:
             logger.error("Failed to clone repository %s: %s", repo_url, e)
-            raise e
-        return repo_dir, effective_branch
+            raise
 
     def remove_repo(self, repo_url: str) -> bool:
         """
@@ -149,7 +153,7 @@ class RepoManager:
         Returns:
             bool: True if the repository was removed successfully, False otherwise.
         """
-        repo_dir = self._get_repo_dir(repo_url)
+        repo_dir = self._resolve_repo_dir(repo_url)
         if repo_dir.exists():
             try:
                 shutil.rmtree(repo_dir, onexc=on_exc)
@@ -158,6 +162,5 @@ class RepoManager:
             except Exception as e:
                 logger.error("Failed to remove repository '%s': %s", repo_dir, e)
                 return False
-        else:
-            logger.warning("Repository '%s' does not exist.", repo_dir)
-            return False
+        logger.warning("Repository '%s' does not exist.", repo_dir)
+        return False
