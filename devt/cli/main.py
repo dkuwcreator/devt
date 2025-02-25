@@ -19,10 +19,10 @@ app = typer.Typer(help="DevT: A CLI tool for managing development tool packages.
 @app.callback()
 def main(
     ctx: typer.Context,
-    scope: str = typer.Option("user", help="Scope: user or workspace.", show_default=False),
-    log_level: str = typer.Option("WARNING", help="Global log level.", show_default=False),
-    log_format: str = typer.Option("default", help="Log format: default or detailed.", show_default=False),
-    auto_sync: bool = typer.Option(False, "--auto-sync", help="Enable background auto-sync for repositories.", show_default=False),
+    scope: str = typer.Option(None, help="Scope: user or workspace.", show_default=False),
+    log_level: str = typer.Option(None, help="Global log level.", show_default=False),
+    log_format: str = typer.Option(None, help="Log format: default or detailed.", show_default=False),
+    auto_sync: bool = typer.Option(None, "--auto-sync", help="Enable background auto-sync for repositories.", show_default=False),
 ):
     """
     Configure environment and initialize managers before any command runs.

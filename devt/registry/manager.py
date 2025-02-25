@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from devt.package.builder import ToolPackage
+
 from .models import Base, ScriptModel, PackageModel, RepositoryModel
 from sqlalchemy.exc import IntegrityError
 
@@ -216,22 +218,22 @@ class PackageRegistry(BaseRegistry):
 
     def update_package(self, command: str, **kwargs) -> None:
         """
-        Generalized update for a package. This method now dynamically updates any attribute present
-        in the PackageModel. Any keys in kwargs that do not correspond to a valid column
-        in PackageModel will be ignored.
+        Generalized update for a package. This method dynamically updates any attribute present
+        in the PackageModel except for 'install_date', which should never be changed.
+        Any keys in kwargs that do not correspond to a valid column in PackageModel will be ignored.
         """
         logger.info(f"Updating package '{command}' with updates: {kwargs}.")
         with session_scope(self.Session) as session:
             pkg = session.query(PackageModel).filter_by(command=command).first()
             if not pkg:
                 raise ValueError("Package not found")
-
-            # Dynamically obtain allowed column names from PackageModel.
+            
             valid_columns = {col.name for col in PackageModel.__table__.columns}
             for key, value in kwargs.items():
+                if key == "install_date":
+                    continue
                 if key in valid_columns:
                     if key == "dependencies":
-                        # Store None when dependencies is empty or falsy.
                         setattr(pkg, key, value if value else None)
                     else:
                         setattr(pkg, key, value)
@@ -338,18 +340,18 @@ class RepositoryRegistry(BaseRegistry):
             repos = query.all()
             return [self._pack_repo_data(repo) for repo in repos]
 
-    def update_repository(
-        self, url: str, name: str, branch: str, location: str, auto_sync: bool
-    ) -> None:
-        logger.info(f"Updating repository '{url}'.")
+    def update_repository(self, url: str, **kwargs) -> None:
+        logger.info(f"Updating repository '{url}' with updates: {kwargs}.")
         with session_scope(self.Session) as session:
             repo = session.query(RepositoryModel).filter_by(url=url).first()
             if not repo:
                 raise ValueError("Repository not found")
-            repo.name = name
-            repo.branch = branch
-            repo.location = location
-            repo.auto_sync = auto_sync
+            valid_columns = {col.name for col in RepositoryModel.__table__.columns}
+            for key, value in kwargs.items():
+                if key in valid_columns:
+                    setattr(repo, key, value)
+                else:
+                    logger.warning(f"Key '{key}' is not a recognized repository field and will be ignored.")
             repo.last_update = datetime.now()
 
     def delete_repository(self, url: str) -> None:
@@ -374,8 +376,79 @@ class RepositoryRegistry(BaseRegistry):
             repo = session.query(RepositoryModel).filter_by(url=url).first()
             return repo.location if repo else None
 
-    def get_repo_by_name(self, name: str) -> Optional[str]:
+    def get_repo_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         logger.info(f"Retrieving repository by name '{name}'.")
         with self.Session() as session:
             repo = session.query(RepositoryModel).filter_by(name=name).first()
-            return repo.url if repo else None
+            return self._pack_repo_data(repo) if repo else None
+
+class RegistryManager:
+    """
+    Manages all registry-related operations.
+    """
+    def __init__(self, registry_path: Path) -> None:
+        self.engine = create_db_engine(registry_path)
+        self.script_registry = ScriptRegistry(self.engine)
+        self.package_registry = PackageRegistry(self.engine)
+        self.repository_registry = RepositoryRegistry(self.engine)
+
+    def close(self) -> None:
+        self.engine.dispose()
+        logger.info("Registry engine disposed.")
+
+    def reset_registry(self) -> None:
+        """
+        Resets the registry by dropping all tables and recreating them.
+        """
+        Base.metadata.drop_all(self.engine)
+        Base.metadata.create_all(self.engine)
+        logger.info("Registry tables dropped and recreated.")
+
+    def register_package(self, pkg: Dict, force: bool = False) -> None:
+        """
+        Add a new package (and its scripts) to the registries.
+        """
+        if force:
+            self.unregister_package(pkg["command"])
+        pkg_data = pkg.copy()
+        scripts = pkg_data.pop("scripts", {})
+        self.package_registry.add_package(**pkg_data)
+        for script_name, script in scripts.items():
+            self.script_registry.add_script(pkg_data["command"], script_name, script)
+
+    def update_package(self, pkg: Dict) -> None:
+        """
+        Update an existing package (and its scripts) in the registries.
+        """
+        pkg_data = pkg.copy()
+        scripts = pkg_data.pop("scripts", {})
+        command = pkg_data.get("command")
+        if not command:
+            raise ValueError("Missing package 'command' field for update.")
+        # Exclude 'command' from kwargs since it's passed separately.
+        update_data = {k: v for k, v in pkg_data.items() if k != "command"}
+        self.package_registry.update_package(command, **update_data)
+        for script_name, script in scripts.items():
+            self.script_registry.update_script(command, script_name, script)
+
+    def unregister_package(self, command: str) -> None:
+        """
+        Remove a package and its scripts from the registries.
+        """
+        self.package_registry.delete_package(command)
+        for script in self.script_registry.list_scripts(command):
+            self.script_registry.delete_script(script["command"], script["script"])
+
+    def retrieve_package(self, command: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a package and its scripts from the registries.
+        """
+        pkg = self.package_registry.get_package(command)
+        if pkg:
+            pkg["scripts"] = {
+                script["script"]: script for script in self.script_registry.list_scripts(command)
+            }
+        return pkg
+
+        
+        

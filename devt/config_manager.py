@@ -12,14 +12,14 @@ from devt.utils import load_json, load_manifest, merge_configs, find_file_type, 
 logger = logging.getLogger(__name__)
 
 # Application Name
-app_name = os.environ.get("APP_NAME", "devt")
+APP_NAME = os.environ.get("APP_NAME", "devt")
 
 # File Names
 REGISTRY_FILE_NAME = "registry.json"
 WORKSPACE_FILE_NAME = "workspace.json"
 
 # Directories and Constants
-USER_APP_DIR = Path(typer.get_app_dir(f".{app_name}"))
+USER_APP_DIR = Path(typer.get_app_dir(f".{APP_NAME}"))
 USER_REGISTRY_DIR = USER_APP_DIR / "registry"
 USER_TOOLS_DIR = USER_REGISTRY_DIR / "tools"
 USER_REPOS_DIR = USER_REGISTRY_DIR / "repos"
@@ -38,8 +38,8 @@ WORKSPACE_REPOS_DIR = WORKSPACE_REGISTRY_DIR / "repos"
 WORKSPACE_REGISTRY_FILE = WORKSPACE_REGISTRY_DIR / REGISTRY_FILE_NAME
 
 # Environment Variable Names
-ENV_USER_APP_DIR = f"{app_name.upper()}_USER_APP_DIR"
-ENV_WORKSPACE_DIR = f"{app_name.upper()}_WORKSPACE_APP_DIR"
+ENV_USER_APP_DIR = f"{APP_NAME.upper()}_USER_APP_DIR"
+ENV_WORKSPACE_DIR = f"{APP_NAME.upper()}_WORKSPACE_APP_DIR"
 
 
 def set_user_environment_var(name: str, value: str):
@@ -89,7 +89,7 @@ def get_effective_config(runtime_options: dict) -> dict:
     user_config = load_json(CONFIG_FILE)
 
     # 3. Workspace configuration (if available).
-    workspace_file = find_file_type("workspace", WORKSPACE_APP_DIR)
+    workspace_file = find_file_type("manifest", WORKSPACE_APP_DIR)
     try:
         if workspace_file:
             workspace_data = load_manifest(workspace_file)
@@ -99,7 +99,7 @@ def get_effective_config(runtime_options: dict) -> dict:
     except Exception as e:
         typer.echo(f"Error loading workspace config: {e}")
         workspace_config = {}
-
+        
     # 4. Merge configurations in order: default < user < workspace < runtime.
     effective_config = merge_configs(default_config, user_config, workspace_config, runtime_options)
     return effective_config

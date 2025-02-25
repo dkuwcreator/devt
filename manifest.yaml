@@ -2,6 +2,8 @@ name: My Workspace
 description: This is my workspace. There are many like it, but this one is mine.
 dependencies: {}
 command: workspace
+config:
+  scope: workspace
 scripts:
   install: pip install -r requirements.txt
   workspace_test: echo "This is a test of the workspace!"

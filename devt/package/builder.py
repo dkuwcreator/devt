@@ -1,6 +1,5 @@
 # package_builder.py
 import os
-import inspect
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -44,6 +43,7 @@ class ToolPackage:
             "name": self.name,
             "description": self.description,
             "command": self.command,
+            "scripts": {key: script.to_dict() for key, script in self.scripts.items()},
             "location": str(self.location),
             "dependencies": self.dependencies,
             "group": self.group,

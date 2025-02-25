@@ -6,7 +6,7 @@ import zipfile
 from pathlib import Path
 from typing import List
 
-from devt.utils import find_file_type
+from devt.utils import find_file_type, load_manifest, merge_configs, save_manifest
 
 from .builder import PackageBuilder, ToolPackage
 
@@ -21,7 +21,7 @@ class PackageManager:
         """
         Initialize the PackageManager with a directory for storing packages.
         """
-        self.tools_dir: Path = tools_dir
+        self.tools_dir: Path = tools_dir / "tools"
         self.tools_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Tools directory is set to: %s", self.tools_dir)
 
@@ -65,6 +65,10 @@ class PackageManager:
         """
         packages: List[ToolPackage] = []
         errors: List[str] = []
+
+        if source.suffix.lower() == ".zip":
+            destination_dir = source.parent / source.stem
+            source = self.unpack_package(source, destination_dir)
 
         if source.is_file() and source.suffix in [".json", ".yaml", ".yml"]:
             effective_group = group or "default"
@@ -164,3 +168,11 @@ class PackageManager:
             zf.extractall(destination_dir)
         logger.info("Package unpacked successfully to '%s'.", destination_dir)
         return destination_dir
+
+    def update_manifest(self, package_dir: Path, manifest_data: dict) -> None:
+        """
+        Update the manifest file in the package directory with the specified data.
+        """
+        manifest_old = load_manifest(package_dir)
+        manifest_new = merge_configs(manifest_old, manifest_data)
+        save_manifest(package_dir, manifest_new)

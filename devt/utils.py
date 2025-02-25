@@ -53,14 +53,18 @@ def find_file_type(prefix: str, current_dir: Path = Path.cwd()) -> Optional[Path
             return candidate_file
         else:
             logger.debug("File does not exist: %s", candidate_file)
-    logger.warning("No file found for prefix '%s' in directory %s.", prefix, current_dir)
+    logger.warning(
+        "No file found for prefix '%s' in directory %s.", prefix, current_dir
+    )
     return None
 
 
 def load_manifest(manifest_path: Path) -> Dict[str, Any]:
     """Load and parse the manifest file (YAML or JSON)."""
     if not manifest_path.is_file():
-        raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
+        manifest_path = find_file_type("manifest", manifest_path)
+        if not manifest_path:
+            raise FileNotFoundError("Manifest file not found.")
 
     with manifest_path.open("r", encoding="utf-8") as f:
         if manifest_path.suffix in [".yaml", ".yml"]:
@@ -73,6 +77,21 @@ def load_manifest(manifest_path: Path) -> Dict[str, Any]:
         if not data:
             raise ValueError(f"Manifest file is empty or invalid: {manifest_path}")
     return data
+
+
+def save_manifest(manifest_dir: Path, data: Dict[str, Any], type: str = "yaml") -> None:
+    """Save the manifest data to a file (YAML or JSON)."""
+    if type not in ["yaml", "json"]:
+        raise ValueError(f"Unsupported file type: {type}")
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_file = manifest_dir / f"manifest.{type}"
+    with manifest_file.open("w", encoding="utf-8") as f:
+        if type == "yaml":
+            yaml.dump(data, f, default_flow_style=False)
+        elif type == "json":
+            json.dump(data, f, indent=2)
+        else:
+            raise ValueError(f"Unsupported file type: {type}")
 
 
 def find_recursive_manifest_files(
@@ -209,4 +228,3 @@ def print_table(headers: List[str], rows: List[List[str]]) -> None:
         )
         typer.echo(row_line)
     typer.echo(separator)
-
