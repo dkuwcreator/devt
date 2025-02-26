@@ -204,18 +204,20 @@ def self_upgrade() -> None:
         typer.echo("Failed to replace executable.")
         return
 
-    creationflags = subprocess.DETACHED_PROCESS if sys.platform.startswith("win") else 0
-    try:
-        subprocess.run(
-            [str(current_executable_path)],
-            creationflags=creationflags,
-            timeout=TIMEOUT_PROCESS
-        )
-        logger.info("New process launched successfully.")
-        sys.exit(0)
-    except subprocess.TimeoutExpired:
-        logger.error("Process launch timed out.")
-        typer.echo("Process launch timed out.")
-    except Exception as e:
-        logger.error("Failed to launch new process: %s", e)
-        typer.echo("Failed to launch new process.")
+    sys.exit(0)
+
+    # creationflags = subprocess.DETACHED_PROCESS if sys.platform.startswith("win") else 0
+    # try:
+    #     subprocess.run(
+    #         [str(current_executable_path)],
+    #         creationflags=creationflags,
+    #         timeout=TIMEOUT_PROCESS
+    #     )
+    #     logger.info("New process launched successfully.")
+    #     sys.exit(0)
+    # except subprocess.TimeoutExpired:
+    #     logger.error("Process launch timed out.")
+    #     typer.echo("Process launch timed out.")
+    # except Exception as e:
+    #     logger.error("Failed to launch new process: %s", e)
+    #     typer.echo("Failed to launch new process.")
