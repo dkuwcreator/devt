@@ -6,12 +6,15 @@ param (
 
 # Constants
 $OUTPUT_NAME         = "devt"
+$UPDATER_NAME        = "devt_updater"
 $DEFAULT_INSTALL_DIR = Join-Path $env:USERPROFILE $OUTPUT_NAME  # Logical install location
 $DOWNLOAD_URL        = "https://github.com/dkuwcreator/devt/releases/latest/download/devt.exe"
+$UPDATER_URL        = "https://github.com/dkuwcreator/devt/releases/latest/download/devt_updater.exe"
 
 # Determine installation directory
 $INSTALL_DIR      = if ($InstallPath) { $InstallPath } else { $DEFAULT_INSTALL_DIR }
 $EXECUTABLE_PATH  = Join-Path $INSTALL_DIR "$OUTPUT_NAME.exe"
+$UPDATER_PATH     = Join-Path $INSTALL_DIR "$UPDATER_NAME.exe"
 
 # Function to update the User PATH environment variable
 function Update-UserPath {
@@ -49,26 +52,28 @@ function Update-UserPath {
     $env:PATH    = "$machinePath;$userPath"
 }
 
-# Function to install the executable
+# Function to install the application
 function Install-App {
     if (-not (Test-Path $INSTALL_DIR)) {
         New-Item -ItemType Directory -Path $INSTALL_DIR -Force | Out-Null
     }
-    
+
     Write-Host "Downloading $OUTPUT_NAME from GitHub..."
     try {
         Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile $EXECUTABLE_PATH -UseBasicParsing -ErrorAction Stop
+        Invoke-WebRequest -Uri $UPDATER_URL -OutFile $UPDATER_PATH -UseBasicParsing -ErrorAction Stop
     }
     catch {
-        Write-Host "Failed to download $OUTPUT_NAME. Check your network connection."
+        Write-Host "Failed to download $OUTPUT_NAME or $UPDATER_NAME. Check your network connection."
         exit 1
     }
 
-    if (Test-Path $EXECUTABLE_PATH) {
+    if (Test-Path $EXECUTABLE_PATH -and Test-Path $UPDATER_PATH) {
         Write-Host "$OUTPUT_NAME successfully installed to $INSTALL_DIR"
+        Write-Host "$UPDATER_NAME successfully installed to $INSTALL_DIR"
     }
     else {
-        Write-Host "Download completed but $EXECUTABLE_PATH was not found."
+        Write-Host "Download completed, but files were not found."
         exit 1
     }
 
@@ -77,7 +82,7 @@ function Install-App {
     Write-Host "Installation complete. You may need to restart your terminal for PATH changes to take effect."
 }
 
-# Function to uninstall the executable and remove PATH entry
+# Function to uninstall the application and remove PATH entry
 function Uninstall-App {
     if (Test-Path $INSTALL_DIR) {
         Remove-Item -Path $INSTALL_DIR -Recurse -Force
@@ -86,7 +91,7 @@ function Uninstall-App {
     else {
         Write-Host "$INSTALL_DIR not found. Skipping removal."
     }
-    
+
     Update-UserPath -TargetPath $INSTALL_DIR -Remove
 }
 
