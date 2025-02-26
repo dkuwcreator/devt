@@ -1,15 +1,14 @@
-import subprocess
-import sys
-import time
-import shutil
-import os
+import typer
 import logging
+import sys
+import subprocess
+import shutil
+import time
 from pathlib import Path
 import urllib3
 import truststore
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+app = typer.Typer()
 
 # Constants
 GITHUB_DOWNLOAD_URL = "https://github.com/dkuwcreator/devt/releases/latest/download/devt.exe"
@@ -21,7 +20,6 @@ http = urllib3.PoolManager(ssl_context=ctx)
 
 
 def download_new_executable(url: str, destination: Path) -> bool:
-    """Download the latest DevT executable."""
     logging.info("Downloading DevT update from %s...", url)
     try:
         response = http.request(
@@ -45,37 +43,36 @@ def download_new_executable(url: str, destination: Path) -> bool:
 
 
 def replace_executable(new_exe: Path, current_exe: Path) -> None:
-    """Replace the existing DevT executable with the new one."""
     backup = current_exe.with_suffix(".old")
     logging.info("Waiting for DevT to close...")
     time.sleep(3)
-
     try:
         if current_exe.exists():
             shutil.move(str(current_exe), str(backup))
             logging.info("Backed up old executable to %s", backup)
-
         shutil.move(str(new_exe), str(current_exe))
         logging.info("Replaced %s successfully.", current_exe)
     except Exception as err:
         logging.error("Error replacing executable: %s", err)
         sys.exit(1)
 
+
 def restart_application(executable: Path) -> None:
-    """Restart the updated DevT application with 'self version' arguments."""
     logging.info("Restarting DevT with 'self version' arguments...")
     try:
         subprocess.Popen([str(executable), "self", "version"])
     except Exception as err:
         logging.error("Failed to restart DevT: %s", err)
 
-def main():
-    """Main update logic."""
-    if len(sys.argv) < 2:
-        print("Usage: devt_updater.exe <install_dir>")
-        sys.exit(1)
 
-    install_dir = Path(sys.argv[1])
+@app.command()
+def update(
+    install_dir: Path = typer.Argument(..., help="Installation directory for DevT"),
+    log_level: str = typer.Option("INFO", "--log-level", help="Set the logging level (default: INFO)")
+):
+    numeric_level = getattr(logging, log_level.upper(), None)
+    logging.basicConfig(level=numeric_level, format="%(asctime)s - %(levelname)s - %(message)s")
+
     new_executable = install_dir / "devt_new.exe"
     current_executable = install_dir / "devt.exe"
 
@@ -89,4 +86,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    app()
