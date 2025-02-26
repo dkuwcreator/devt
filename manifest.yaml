@@ -9,6 +9,8 @@ scripts:
   windows:
     build: .venv/Scripts/Activate.ps1; py build.py --clean;
     replace: Copy-Item -Path .\dist\* -Destination $env:USERPROFILE\devt -Recurse -Force
+    push: .venv/Scripts/Activate.ps1; pip freeze > requirements.txt; git add .; git commit -m "Update requirements"; git push
+    tag: $t=git describe --tags --abbrev=0;$p=$t.Substring(1).Split('.');$p[2]=[int]$p[2]+1;git tag "v$($p -join '.')"&&git push origin "v$($p -join '.')"
   workspace_test: echo "This is a test of the workspace!"
   requirements: pip install -r requirements.txt
   deactivate: deactivate
