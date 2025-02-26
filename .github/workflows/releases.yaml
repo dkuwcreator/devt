@@ -34,9 +34,11 @@ jobs:
         shell: powershell
 
       - name: Run build script
-        run: |
-          .venv\Scripts\activate
-          python build.py --ci --clean --include-updater
+        run: .venv\Scripts\python.exe build.py --ci --clean --include-updater
+        shell: cmd
+
+      - name: List dist directory contents
+        run: dir dist
         shell: cmd
 
       - name: Create GitHub Release
