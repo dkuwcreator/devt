@@ -23,7 +23,8 @@ function Update-Path {
     )
     
     # Get the current User PATH and ensure it's a string
-    $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User") -or ""
+    $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
+    if (-not $userPath) { $userPath = "" }
     
     # Split the PATH into an array for easier handling
     $pathArray = $userPath.Split(";") | Where-Object { $_ -ne "" }
