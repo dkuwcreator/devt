@@ -7,9 +7,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Load environment variables
 config = dotenv_values("project.env")
@@ -30,12 +28,47 @@ VERSION_FILE = SESSION_CWD / ".version"
 
 # Platform-specific Python path in the venv
 PYTHON_EXECUTABLE = (
-    VENV_DIR / "Scripts" / "python"
-    if platform.system() == "Windows"
-    else VENV_DIR / "bin" / "python"
+    VENV_DIR / "Scripts" / "python.exe" if platform.system() == "Windows" else VENV_DIR / "bin" / "python"
 )
 
 app = typer.Typer()
+
+
+def ensure_venv() -> None:
+    """Ensure a virtual environment exists and install dependencies if missing."""
+    if not VENV_DIR.exists():
+        logging.info("Creating virtual environment...")
+        subprocess.run(["python", "-m", "venv", str(VENV_DIR)], check=True)
+
+    if not PYTHON_EXECUTABLE.exists():
+        logging.error(f"Python executable not found at {PYTHON_EXECUTABLE}. The virtual environment may be corrupted.")
+        raise FileNotFoundError(f"Python executable missing: {PYTHON_EXECUTABLE}")
+
+    logging.info("Installing dependencies in the virtual environment...")
+    subprocess.run(
+        [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "--upgrade", "pip"],
+        check=True,
+    )
+    subprocess.run(
+        [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "-r", "requirements.txt"],
+        check=True,
+    )
+
+
+def ensure_pyinstaller() -> None:
+    """Ensure PyInstaller is installed before running the build."""
+    try:
+        subprocess.run(
+            [str(PYTHON_EXECUTABLE), "-m", "PyInstaller", "--version"],
+            check=True,
+            capture_output=True,
+        )
+        logging.info("PyInstaller is installed.")
+    except subprocess.CalledProcessError:
+        logging.info("PyInstaller not found. Installing...")
+        subprocess.run(
+            [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "pyinstaller"], check=True
+        )
 
 
 def get_version() -> str:
@@ -90,57 +123,18 @@ def clean() -> None:
     logging.info("Cleaned previous build artifacts.")
 
 
-def setup_venv() -> None:
-    """Ensure a virtual environment exists and install dependencies."""
-    if not VENV_DIR.exists():
-        logging.info("Creating virtual environment...")
-        subprocess.run(["python", "-m", "venv", str(VENV_DIR)], check=True)
-
-    logging.info("Installing dependencies...")
-    try:
-        subprocess.run(
-            [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "-r", "requirements.txt"],
-            check=True,
-        )
-    except subprocess.CalledProcessError:
-        logging.error("Dependency installation failed.")
-        raise
-
-
-def ensure_pyinstaller() -> None:
-    """Ensure PyInstaller is installed before running the build."""
-    try:
-        subprocess.run(
-            [str(PYTHON_EXECUTABLE), "-m", "PyInstaller", "--version"],
-            check=True,
-            capture_output=True,
-        )
-        logging.info("PyInstaller is installed.")
-    except subprocess.CalledProcessError:
-        logging.info("PyInstaller not found. Installing...")
-        subprocess.run(
-            [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "pyinstaller"], check=True
-        )
-
-
 @app.command()
 def build(
-    clean_before: bool = typer.Option(
-        False, "--clean", help="Clean build artifacts before building"
-    ),
-    ci: bool = typer.Option(
-        False, "--ci", help="Run in CI mode (skip virtual environment setup)"
-    ),
-    include_updater: bool = typer.Option(
-        True, "--include-updater", help="Build the updater alongside the main app"
-    ),
+    clean_before: bool = typer.Option(False, "--clean", help="Clean build artifacts before building"),
+    ci: bool = typer.Option(False, "--ci", help="Run in CI mode (skip virtual environment setup)"),
+    include_updater: bool = typer.Option(True, "--include-updater", help="Build the updater alongside the main app"),
 ):
     """Build the project into a standalone executable."""
     if clean_before:
         clean()
 
     if not ci:
-        setup_venv()
+        ensure_venv()
 
     # Ensure PyInstaller is installed
     ensure_pyinstaller()
@@ -171,6 +165,11 @@ def build(
     # Build the updater if enabled
     if include_updater:
         logging.info("Building updater...")
+
+        if not Path(UPDATER_SCRIPT).exists():
+            logging.error(f"Updater script not found: {UPDATER_SCRIPT}")
+            raise FileNotFoundError(f"Updater script missing: {UPDATER_SCRIPT}")
+
         cmd_updater = [
             str(PYTHON_EXECUTABLE),
             "-m",
@@ -182,9 +181,7 @@ def build(
         ]
         try:
             subprocess.run(cmd_updater, check=True)
-            logging.info(
-                f"Updater build completed. Executable is in the '{DIST_DIR}' folder."
-            )
+            logging.info(f"Updater build completed. Executable is in the '{DIST_DIR}' folder.")
         except subprocess.CalledProcessError as e:
             logging.error("Updater build process failed.")
             raise e

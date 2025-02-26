@@ -23,14 +23,19 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          python -m venv .venv
+          .venv\Scripts\activate
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller  # Ensure PyInstaller is installed
 
       - name: Write Version File
-        run: echo "${{ github.ref_name }}" > .version
+        run: echo "${{ github.ref_name }}" | Out-File -Encoding utf8 .version
 
       - name: Run build script
         run: |
-          python build.py --ci --clean
+          .venv\Scripts\activate
+          python build.py --ci --clean --include-updater
         shell: cmd
      
       - name: Create GitHub Release
@@ -41,6 +46,8 @@ jobs:
           body: "Automated release of devt version ${{ github.ref_name }}."
           draft: false
           prerelease: false
-          files: dist/devt.exe
+          files: |
+            dist/devt.exe
+            dist/devt_updater.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
