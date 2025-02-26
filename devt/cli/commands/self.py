@@ -1,9 +1,9 @@
-import os
 import sys
 import subprocess
 import logging
 import ssl
 import json
+from pathlib import Path
 
 from packaging import version
 import requests
@@ -23,27 +23,27 @@ logger = logging.getLogger(__name__)
 self_app = typer.Typer(help="DevT self management commands")
 
 
-def get_install_dir() -> str:
+def get_install_dir() -> Path:
     """Return the installation directory of the executable or script."""
     if getattr(sys, "frozen", False):
-        install_dir = os.path.dirname(sys.executable)
+        install_dir = Path(sys.executable).parent
     else:
-        install_dir = os.path.dirname(os.path.abspath(__file__))
+        install_dir = Path(__file__).resolve().parent
     logger.info("Installation directory: %s", install_dir)
     return install_dir
 
 
 def update_path(target_path: str, remove: bool = False) -> None:
     """Add or remove a directory from the PATH environment variable."""
-    user_path = os.environ.get("PATH", "")
-    paths = user_path.split(os.pathsep) if user_path else []
+    user_path = sys.environ.get("PATH", "")
+    paths = user_path.split(Path.pathsep) if user_path else []
 
     if remove:
         if target_path in paths:
             logger.info("Removing %s from PATH", target_path)
             typer.echo(f"Removing {target_path} from PATH...")
             paths = [p for p in paths if p != target_path]
-            os.environ["PATH"] = os.pathsep.join(paths)
+            sys.environ["PATH"] = Path.pathsep.join(paths)
             typer.echo(
                 "Removed. Restart your terminal or system for changes to take effect."
             )
@@ -52,19 +52,20 @@ def update_path(target_path: str, remove: bool = False) -> None:
             logger.info("Adding %s to PATH", target_path)
             typer.echo(f"Adding {target_path} to PATH...")
             paths.append(target_path)
-            os.environ["PATH"] = os.pathsep.join(paths)
+            sys.environ["PATH"] = Path.pathsep.join(paths)
             typer.echo(
                 "Added. Restart your terminal or system for changes to take effect."
             )
 
 
-def replace_executable(new_executable: str, current_executable: str) -> None:
+def replace_executable(new_executable: Path, current_executable: Path) -> None:
     """Replace the current executable with a new file."""
-    backup = current_executable + ".old"
+    backup = current_executable.with_suffix(current_executable.suffix + ".old")
     logger.info("Creating backup of current executable at %s", backup)
-    os.rename(current_executable, backup)
-    os.rename(new_executable, current_executable)
-    # os.remove(backup)
+    if backup.exists():
+        backup.unlink()
+    current_executable.rename(backup)
+    new_executable.rename(current_executable)
     logger.info("Executable replaced successfully.")
 
 
@@ -104,7 +105,8 @@ def notify_upgrade_if_available(current_version: str, latest_version: str) -> No
     else:
         typer.echo("You have the latest version.")
 
-def download_executable(download_url: str, save_path: str) -> bool:
+
+def download_executable(download_url: str, save_path: Path) -> bool:
     """Download the executable from the provided URL using urllib3."""
     typer.echo(f"Downloading {APP_NAME} from GitHub...")
     logger.info("Starting download from %s", download_url)
@@ -120,15 +122,15 @@ def download_executable(download_url: str, save_path: str) -> bool:
         return False
 
     try:
-        with open(save_path, "wb") as file:
-            file.write(response.data)
+        save_path.write_bytes(response.data)
     except IOError as err:
         logger.error("Failed to save file at %s: %s", save_path, err)
         typer.echo("Failed to save the file. Check your network connection.")
         return False
 
     logger.info("Downloaded file saved to %s", save_path)
-    return os.path.exists(save_path)
+    return save_path.exists()
+
 
 @self_app.command("version")
 def self_version() -> None:
@@ -165,14 +167,15 @@ def self_upgrade() -> None:
     logger.info("Initiating upgrade process.")
     install_dir = get_install_dir()
 
-    new_executable_path = os.path.join(install_dir, f"{APP_NAME}_new.exe")
-    current_executable_path = os.path.join(install_dir, f"{APP_NAME}.exe")
+    # Ensure installation directory exists
+    install_dir.mkdir(exist_ok=True)
+    logger.info("Ensured that installation directory exists: %s", install_dir)
+
+    new_executable_path = install_dir / f"{APP_NAME}_new.exe"
+    current_executable_path = install_dir / f"{APP_NAME}.exe"
     download_url = (
         "https://github.com/dkuwcreator/devt/releases/latest/download/devt.exe"
     )
-
-    os.makedirs(install_dir, exist_ok=True)
-    logger.info("Ensured that installation directory exists: %s", install_dir)
 
     if not download_executable(download_url, new_executable_path):
         logger.error("Download failed. Aborting upgrade.")
@@ -186,5 +189,5 @@ def self_upgrade() -> None:
     typer.echo("Replacement complete. Restarting application...")
     logger.info("Executable replaced. Restarting application.")
 
-    subprocess.Popen([current_executable_path])
+    subprocess.Popen([str(current_executable_path)])
     sys.exit()

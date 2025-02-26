@@ -27,7 +27,7 @@ function Update-Path {
     if (-not $userPath) { $userPath = "" }
     
     # Split the PATH into an array for easier handling
-    $pathArray = $userPath.Split(";") | Where-Object { $_ -ne "" }
+    $pathArray = $userPath.Split([System.IO.Path]::PathSeparator) | Where-Object { $_ -ne "" }
     
     if ($Remove) {
         if ($pathArray -contains $TargetPath) {
