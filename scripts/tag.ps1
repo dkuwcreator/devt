@@ -7,8 +7,20 @@ param (
 # A simple script to increment the version of the latest git tag
 # Assumes tags are in the format vMAJOR.MINOR.PATCH
 
-# Retrieve the latest tag from git
-$t = git describe --tags --abbrev=0
+# Retrieve the latest remote tag from git
+$tags = git ls-remote --tags origin | ForEach-Object {
+    $parts = $_.Trim() -split "\s+"
+    if ($parts[1] -match "refs/tags/v(\d+\.\d+\.\d+)$") {
+        return $matches[1]
+    }
+}
+$validTags = $tags | Where-Object { $_ } | ForEach-Object { [version]$_ } | Sort-Object
+if ($validTags.Count -gt 0) {
+    $latestVersion = $validTags[-1].ToString()
+    $t = "v$latestVersion"
+} else {
+    $t = $null
+}
 
 if ($t) {
     # Remove the leading 'v' and split the version string

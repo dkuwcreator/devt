@@ -68,7 +68,7 @@ def restart_application(executable: Path) -> None:
 @app.command()
 def update(
     install_dir: Path = typer.Argument(..., help="Installation directory for DevT"),
-    log_level: str = typer.Option("INFO", "--log-level", help="Set the logging level (default: INFO)")
+    log_level: str = typer.Option("WARNING", "--log-level", help="Set the logging level (default: WARNING)")
 ):
     numeric_level = getattr(logging, log_level.upper(), None)
     logging.basicConfig(level=numeric_level, format="%(asctime)s - %(levelname)s - %(message)s")
