@@ -9,7 +9,7 @@ $OUTPUT_NAME         = "devt"
 $UPDATER_NAME        = "devt_updater"
 $DEFAULT_INSTALL_DIR = Join-Path $env:USERPROFILE $OUTPUT_NAME  # Logical install location
 $DOWNLOAD_URL        = "https://github.com/dkuwcreator/devt/releases/latest/download/devt.exe"
-$UPDATER_URL        = "https://github.com/dkuwcreator/devt/releases/latest/download/devt_updater.exe"
+$UPDATER_URL         = "https://github.com/dkuwcreator/devt/releases/latest/download/devt_updater.exe"
 
 # Determine installation directory
 $INSTALL_DIR      = if ($InstallPath) { $InstallPath } else { $DEFAULT_INSTALL_DIR }
@@ -68,7 +68,7 @@ function Install-App {
         exit 1
     }
 
-    if (Test-Path $EXECUTABLE_PATH -and Test-Path $UPDATER_PATH) {
+    if ((Test-Path $EXECUTABLE_PATH) -and (Test-Path $UPDATER_PATH)) {
         Write-Host "$OUTPUT_NAME successfully installed to $INSTALL_DIR"
         Write-Host "$UPDATER_NAME successfully installed to $INSTALL_DIR"
     }
