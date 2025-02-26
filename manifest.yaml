@@ -5,7 +5,10 @@ command: workspace
 config:
   scope: workspace
 scripts:
-  install: pip install -r requirements.txt
+  install: py build.py --clean
+  windows:
+    build: .venv/Scripts/Activate.ps1; py build.py --clean;
+    replace: Copy-Item -Path .\dist\* -Destination $env:USERPROFILE\devt -Recurse -Force
   workspace_test: echo "This is a test of the workspace!"
   requirements: pip install -r requirements.txt
   deactivate: deactivate

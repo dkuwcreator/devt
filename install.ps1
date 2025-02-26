@@ -16,33 +16,39 @@ $EXECUTABLE_PATH = Join-Path $INSTALL_DIR "$OUTPUT_NAME.exe"
 # Function to update PATH environment variable
 function Update-Path {
     param (
+        [Parameter(Mandatory)]
         [string]$TargetPath,
+        
         [switch]$Remove
     )
     
-    $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
-    if (-not $userPath) {
-        $userPath = ""
-    }
-
+    # Get the current User PATH and ensure it's a string
+    $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User") -or ""
+    
+    # Split the PATH into an array for easier handling
+    $pathArray = $userPath.Split(";") | Where-Object { $_ -ne "" }
+    
     if ($Remove) {
-        if ($userPath -match [regex]::Escape($TargetPath)) {
+        if ($pathArray -contains $TargetPath) {
             Write-Host "Removing $TargetPath from PATH..."
-            $newPath = ($userPath -split ";" | Where-Object { $_ -ne $TargetPath }) -join ";"
+            $newPath = ($pathArray | Where-Object { $_ -ne $TargetPath }) -join ";"
             [System.Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
             Write-Host "Removed $TargetPath from PATH. Restart your terminal or system for changes to take effect."
         }
     }
     else {
-        if ($userPath -notmatch [regex]::Escape($TargetPath)) {
+        if (-not ($pathArray -contains $TargetPath)) {
             Write-Host "Adding $TargetPath to PATH..."
-            $newPath = if ($userPath) { "$userPath;$TargetPath" } else { $TargetPath }
+            $newPath = if ($userPath) { "$TargetPath;$userPath" } else { $TargetPath }
             [System.Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
             Write-Host "Added $TargetPath to PATH. Restart your terminal or system for changes to take effect."
         }
     }
-    # Ensure PATH updates reflect immediately in the session
-    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
+    
+    # Update the current session PATH from both Machine and User environment variables
+    $machinePath = [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
+    $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
+    $env:PATH = "$machinePath;$userPath"
 }
 
 # Function to install the executable

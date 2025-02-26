@@ -210,15 +210,15 @@ def validate_manifest(manifest: dict) -> bool:
     logger.debug("Validating manifest: %s", manifest)
     try:
         validate(instance=manifest, schema=MANIFEST_SCHEMA)
-        scripts = manifest.get("scripts") or {}
-        install_present = (
-            "install" in scripts
-            or ("windows" in scripts and "install" in scripts["windows"])
-            or ("posix" in scripts and "install" in scripts["posix"])
-        )
-        if not install_present:
-            logger.error("Manifest scripts missing 'install'. Scripts: %s", json.dumps(scripts, indent=4))
-            return False
+        # scripts = manifest.get("scripts") or {}
+        # install_present = (
+        #     "install" in scripts
+        #     or ("windows" in scripts and "install" in scripts["windows"])
+        #     or ("posix" in scripts and "install" in scripts["posix"])
+        # )
+        # if not install_present:
+        #     logger.error("Manifest scripts missing 'install'. Scripts: %s", json.dumps(scripts, indent=4))
+        #     return False
         logger.debug("Manifest validated successfully.")
         return True
     except ValidationError as e:
