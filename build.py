@@ -30,7 +30,7 @@ VERSION_FILE = SESSION_CWD / ".version"
 
 # Platform-specific Python path in the venv
 PYTHON_EXECUTABLE = (
-    VENV_DIR / "Scripts" / "python.exe"
+    VENV_DIR / "Scripts" / "python"
     if platform.system() == "Windows"
     else VENV_DIR / "bin" / "python"
 )
