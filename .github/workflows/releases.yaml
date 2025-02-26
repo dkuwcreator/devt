@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest  # Ensure Windows for `.exe` builds
+    runs-on: windows-latest  # Ensure Windows for .exe builds
 
     steps:
       - name: Checkout repository
@@ -27,17 +27,18 @@ jobs:
           .venv\Scripts\activate
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m pip install pyinstaller  # Ensure PyInstaller is installed
+        shell: powershell
 
       - name: Write Version File
         run: echo "${{ github.ref_name }}" | Out-File -Encoding utf8 .version
+        shell: powershell
 
       - name: Run build script
         run: |
           .venv\Scripts\activate
           python build.py --ci --clean --include-updater
         shell: cmd
-     
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:

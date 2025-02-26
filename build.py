@@ -7,9 +7,11 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
-# Load environment variables
+# Load environment variables from project.env
 config = dotenv_values("project.env")
 
 # Directories and files
@@ -17,8 +19,9 @@ SESSION_CWD = Path(__file__).parent
 VENV_DIR = SESSION_CWD / config.get("VENV_DIR", ".venv")
 
 # Constants from project.env
+# Updated default OUTPUT_NAME to "devt" to match the release filenames.
 ENTRY_SCRIPT = config.get("ENTRY_SCRIPT", "my_project/cli.py")
-OUTPUT_NAME = config.get("OUTPUT_NAME", "my_tool")
+OUTPUT_NAME = config.get("OUTPUT_NAME", "devt")
 UPDATER_SCRIPT = config.get("UPDATER_SCRIPT", "my_project/updater.py")
 DIST_DIR = SESSION_CWD / config.get("DIST_DIR", "dist")
 
@@ -26,9 +29,11 @@ DIST_DIR = SESSION_CWD / config.get("DIST_DIR", "dist")
 INIT_FILE = SESSION_CWD / OUTPUT_NAME / "__init__.py"
 VERSION_FILE = SESSION_CWD / ".version"
 
-# Platform-specific Python path in the venv
+# Platform-specific Python executable in the venv
 PYTHON_EXECUTABLE = (
-    VENV_DIR / "Scripts" / "python.exe" if platform.system() == "Windows" else VENV_DIR / "bin" / "python"
+    VENV_DIR / "Scripts" / "python.exe"
+    if platform.system() == "Windows"
+    else VENV_DIR / "bin" / "python"
 )
 
 app = typer.Typer()
@@ -41,13 +46,14 @@ def ensure_venv() -> None:
         subprocess.run(["python", "-m", "venv", str(VENV_DIR)], check=True)
 
     if not PYTHON_EXECUTABLE.exists():
-        logging.error(f"Python executable not found at {PYTHON_EXECUTABLE}. The virtual environment may be corrupted.")
+        logging.error(
+            f"Python executable not found at {PYTHON_EXECUTABLE}. The virtual environment may be corrupted."
+        )
         raise FileNotFoundError(f"Python executable missing: {PYTHON_EXECUTABLE}")
 
     logging.info("Installing dependencies in the virtual environment...")
     subprocess.run(
-        [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "--upgrade", "pip"],
-        check=True,
+        [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "--upgrade", "pip"], check=True
     )
     subprocess.run(
         [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "-r", "requirements.txt"],
@@ -125,11 +131,17 @@ def clean() -> None:
 
 @app.command()
 def build(
-    clean_before: bool = typer.Option(False, "--clean", help="Clean build artifacts before building"),
-    ci: bool = typer.Option(False, "--ci", help="Run in CI mode (skip virtual environment setup)"),
-    include_updater: bool = typer.Option(True, "--include-updater", help="Build the updater alongside the main app"),
+    clean_before: bool = typer.Option(
+        False, "--clean", help="Clean build artifacts before building"
+    ),
+    ci: bool = typer.Option(
+        False, "--ci", help="Run in CI mode (skip virtual environment setup)"
+    ),
+    include_updater: bool = typer.Option(
+        True, "--include-updater", help="Build the updater alongside the main app"
+    ),
 ):
-    """Build the project into a standalone executable."""
+    """Build the project into standalone executables."""
     if clean_before:
         clean()
 
@@ -181,10 +193,18 @@ def build(
         ]
         try:
             subprocess.run(cmd_updater, check=True)
-            logging.info(f"Updater build completed. Executable is in the '{DIST_DIR}' folder.")
+            logging.info(
+                f"Updater build completed. Executable is in the '{DIST_DIR}' folder."
+            )
         except subprocess.CalledProcessError as e:
             logging.error("Updater build process failed.")
             raise e
+
+    # Debug: list files in the distribution directory
+    if DIST_DIR.exists():
+        logging.info("Built files in the dist directory:")
+        for file in DIST_DIR.iterdir():
+            logging.info(file.name)
 
 
 if __name__ == "__main__":
