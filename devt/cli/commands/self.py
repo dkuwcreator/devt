@@ -132,37 +132,51 @@ def download_executable(download_url: str, save_path: Path) -> bool:
     return save_path.exists()
 
 
-@self_app.command("version")
-def self_version() -> None:
-    """Show the current version of DevT and check for upgrades."""
-    typer.echo(f"DevT version: {__version__}")
-    logger.info("User requested version information.")
-    latest = get_latest_version()
-    if latest:
-        notify_upgrade_if_available(__version__, latest)
+def check_updates() -> None:
+    """
+    Check for updates and notify the user.
+    In development mode, upgrade checks are disabled, but the latest version is shown if available.
+    """
+    latest_version = get_latest_version()
+    if __version__ == "dev":
+        typer.echo("Running in development mode. Upgrade checks are disabled.")
+        if latest_version:
+            typer.echo(f"Latest version available: {latest_version}")
+    elif latest_version:
+        notify_upgrade_if_available(__version__, latest_version)
     else:
         typer.echo("Could not determine the latest version.")
+
+
+@self_app.command("version")
+def self_version() -> None:
+    """
+    Display the current DevT version and perform an update check.
+    """
+    typer.echo(f"DevT version: {__version__}")
+    logger.info("User requested version information.")
+    check_updates()
 
 
 @self_app.command("show")
 def self_show() -> None:
-    """Show the installation directory and version; check for upgrades."""
-    install_dir = get_install_dir()
+    """
+    Display the installation directory and DevT version, then perform an update check with details.
+    """
+    install_directory = get_install_dir()
     typer.echo(f"DevT version: {__version__}")
-    typer.echo(f"Installation directory: {install_dir}")
-    latest = get_latest_version()
-    if __version__ == "dev" and latest:
-        typer.echo("Running in development mode. No upgrade checks.")
-        typer.echo(f"Latest version: {latest}")
-    elif latest:
-        notify_upgrade_if_available(__version__, latest)
-    else:
-        typer.echo("Could not determine the latest version.")
+    typer.echo(f"Installation directory: {install_directory}")
+    check_updates()
 
 
 @self_app.command("upgrade")
 def self_upgrade() -> None:
     """Download and replace the executable with the latest version."""
+    if __version__ == "dev":
+        typer.echo("Upgrade is not available in development mode.")
+        logger.info("Upgrade command invoked in development mode; aborting upgrade.")
+        return
+
     typer.echo("Checking for updates...")
     logger.info("Initiating upgrade process.")
     install_dir = get_install_dir()
