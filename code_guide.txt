@@ -31,30 +31,4 @@ I would like to improve my code, but i want to do it in steps. Here are some bro
 - **Encryption & Data Protection** – Securing sensitive data.
 ```.
 
-I will give you some code and I want you to analyze the code and determine the area to focus on first and also to define sections of code to focus on instead of updating the whole code. Do you understand?
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Files in my project include:
-- cli.py: Command-line interface for interacting with the package manager and registry manager.
-- package_manager.py: Handles file system operations for packages, including importing, moving, copying, deleting, and exporting package directories.
-- registry_manager.py: Registry manager for storing and managing scripts, packages, and repositories.
-- repo_manager.py: Manages repositories stored in a dedicated repos folder.
-- logger_manager.py: Logging manager for recording events, errors, and debug information.
-- config_manager.py: Configuration manager for reading and writing settings to a config file.
-- utils.py: Utility functions for common operations like file I/O, string manipulation, and error handling.
-
-
-
+I will give you code (full scripts or snippets) and I want you to analyze the code and determine the area to focus on first and also to define sections of code to focus on instead of updating the whole code. Do you understand?

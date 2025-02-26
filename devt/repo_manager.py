@@ -45,7 +45,7 @@ class RepoManager:
 
     def _resolve_repo_dir(self, repo_identifier: str) -> Path:
         """Resolves the repository directory based on the identifier (URL, name, or path)."""
-        if repo_identifier.startswith(("http://", "https://", "git@")):
+        if str(repo_identifier).startswith(("http://", "https://", "git@")):
             return self.repos_dir / self._get_repo_name(repo_identifier)
         potential_path = Path(repo_identifier)
         return (
@@ -133,7 +133,8 @@ class RepoManager:
         repo_dir = self._resolve_repo_dir(repo_url)
         if repo_dir.exists():
             logger.info("Repository %s already exists. Updating...", repo_dir.name)
-            return self.sync_repo(repo_url, branch)
+            updated_dir, current_branch, changes_made = self.sync_repo(repo_dir, branch)
+            return updated_dir, current_branch
 
         try:
             logger.info("Cloning repository %s...", repo_url)
@@ -164,3 +165,30 @@ class RepoManager:
                 return False
         logger.warning("Repository '%s' does not exist.", repo_dir)
         return False
+
+    def checkout_branch(self, repo_dir: str, branch: str) -> bool:
+        """
+        Checkout a branch in a repository.
+        
+        Args:
+            repo_dir (str): The path to the repository directory.
+            branch (str): The branch to checkout.
+
+        Returns:
+            bool: True if the branch was checked out successfully, False otherwise.
+        """
+
+        try:
+            repo = Repo(repo_dir)
+            if repo.is_dirty():
+                logger.info("Repository %s is dirty. Resetting to a clean state...", repo_dir.name)
+                repo.git.reset("--hard")
+            if branch in {b.name for b in repo.branches}:
+                repo.git.checkout(branch)
+                logger.info("Checked out branch '%s' in repository %s", branch, repo_dir.name)
+                return True
+            logger.error("Branch '%s' does not exist in repository %s", branch, repo_dir.name)
+            return False
+        except Exception as e:
+            logger.error("Failed to check out branch '%s' in repository %s: %s", branch, repo_dir, e)
+            return False

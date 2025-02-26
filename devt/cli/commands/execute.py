@@ -4,13 +4,8 @@ from typing import List, Optional
 from typing_extensions import Annotated
 import typer
 
-from devt.cli.commands.tool import get_package_from_registries
-from devt.config_manager import (
-    USER_REGISTRY_DIR,
-    WORKSPACE_REGISTRY_DIR,
-    WORKSPACE_APP_DIR,
-)
-from devt.registry.manager import ScriptRegistry, PackageRegistry, create_db_engine
+from devt.cli.helpers import get_package_from_registries
+from devt.config_manager import WORKSPACE_APP_DIR
 from devt.package.manager import PackageBuilder
 from devt.package.script import Script
 from devt.utils import find_file_type
@@ -23,19 +18,19 @@ logger = logging.getLogger(__name__)
 def run_script(
     command: str = typer.Argument(..., help="Unique tool command"),
     script_name: str = typer.Argument(..., help="Name of the script to execute"),
+    extra_args: Annotated[Optional[List[str]], typer.Argument()] = None,
     scope: str = typer.Option(
         "both",
         "--scope",
         help="Registry scope: 'workspace', 'user', or 'both' (default both)",
     ),
-    extra_args: Annotated[Optional[List[str]], typer.Argument()] = None,
 ):
     """
     Executes a script from an installed tool package.
     """
     if extra_args is None:
         extra_args = []
-    typer.echo(f"Executing script with parameters: {extra_args}")
+    logger.info(f"Executing script with parameters: {extra_args}")
 
     scope = scope.lower()
     if scope not in ("workspace", "user", "both"):
@@ -46,13 +41,12 @@ def run_script(
     pkg, scope = get_package_from_registries(command, scope)
 
     if not pkg:
-        typer.echo(f"Tool '{command}' not found in the specified scope '{scope}'.")
+        logger.error(f"Tool '{command}' not found in the specified scope '{scope}'.")
         raise typer.Exit(code=1)
 
     scripts = pkg.get("scripts", {})
 
     if script_name not in scripts and scripts:
-        typer.echo(f"Script '{script_name}' not found for tool '{command}'.")
         typer.echo(
             f"Script '{script_name}' not found for tool '{command}'. "
             f"Available scripts: {sorted(scripts.keys())}"
@@ -63,9 +57,9 @@ def run_script(
         script = Script.from_dict(scripts.get(script_name))
         base_dir = Path(pkg["location"])
         result = script.execute(base_dir, extra_args)
-        typer.echo(f"Command executed with return code {result.returncode}")
+        logger.info(f"Command executed with return code {result.returncode}")
     except Exception as err:
-        typer.echo(f"Error executing script: {err}")
+        logger.error(f"Error executing script: {err}")
         raise typer.Exit(code=1)
 
 
@@ -88,19 +82,19 @@ def run_workspace(
     try:
         pb = PackageBuilder(package_path=workspace_file.parent)
         if script_name not in pb.scripts:
-            typer.echo(f"Script '{script_name}' not found in the workspace package.")
+            logger.error(f"Script '{script_name}' not found in the workspace package.")
             raise typer.Exit(code=1)
         script = pb.scripts[script_name]
     except Exception as e:
-        typer.echo(f"Error building workspace package: {e}")
+        logger.error(f"Error building workspace package: {e}")
         raise typer.Exit(code=1)
 
     base_dir = workspace_file.parent.resolve()
     try:
         result = script.execute(base_dir, extra_args=extra_args)
-        typer.echo(f"Command executed with return code {result.returncode}")
+        logger.info(f"Command executed with return code {result.returncode}")
     except Exception as e:
-        typer.echo(f"Error executing script: {e}")
+        logger.error(f"Error executing script: {e}")
         raise typer.Exit(code=1)
 
 

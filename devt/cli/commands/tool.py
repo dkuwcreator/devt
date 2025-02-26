@@ -1,16 +1,32 @@
-import json
-import shutil
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 import typer
+import logging
 
-from devt.cli.helpers import import_and_register_packages, remove_and_unregister_group_packages, remove_and_unregister_single_package
-from devt.package.manager import PackageManager
-from devt.config_manager import APP_NAME, USER_REGISTRY_DIR, WORKSPACE_REGISTRY_DIR
-from devt.registry.manager import RegistryManager
+from devt.cli.helpers import get_managers
+from devt.config_manager import APP_NAME
+from devt.utils import print_table
 
+from devt.cli.tool_service import ToolService
+
+logger = logging.getLogger(__name__)
 tool_app = typer.Typer(help="Tool management commands")
+
+
+def handle_errors(func):
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logger.exception("An error occurred in %s:", func.__name__)
+            typer.echo(f"An error occurred: {e}")
+            raise typer.Exit(code=1)
+
+    return wrapper
 
 
 def print_tool_summary(tool: dict) -> None:
@@ -51,56 +67,8 @@ def print_script_info(tool_command: str, script_name: str, script: dict) -> None
     typer.secho(f" > {APP_NAME} do {tool_command} {script_name}", fg="green", bold=True)
 
 
-def get_scopes_to_query(scope: str = None) -> Dict[str, RegistryManager]:
-    """
-    Returns a dictionary mapping scope names to their corresponding
-    PackageRegistry instances based on the provided scope filter.
-    If scope is None, returns both user and workspace registries.
-    """
-    if scope:
-        scope_lower = scope.lower()
-        if scope_lower not in ("user", "workspace"):
-            typer.echo("Invalid scope provided. Choose 'user' or 'workspace'.")
-            raise typer.Exit(code=1)
-        if scope_lower == "user":
-            return {"user": RegistryManager(USER_REGISTRY_DIR)}
-        else:
-            return {"workspace": RegistryManager(WORKSPACE_REGISTRY_DIR)}
-    else:
-        return {
-            "user": RegistryManager(USER_REGISTRY_DIR),
-            "workspace": RegistryManager(WORKSPACE_REGISTRY_DIR),
-        }
-
-
-def get_package_from_registries(
-    command: str, scope: str
-) -> tuple[Optional[dict], Optional[str]]:
-    """
-    Retrieves a tool package from the user and workspace registries.
-    Returns the package and the scope where it was found.
-    """
-    for scope, registry in get_scopes_to_query(scope).items():
-        pkg = registry.retrieve_package(command)
-        if pkg:
-            return pkg, scope
-    return None, None
-
-def get_repo_from_registries(
-    name: str, scope: str
-) -> tuple[Optional[dict], Optional[str]]:
-    """
-    Retrieves a repository from the user and workspace registries.
-    Returns the repository and the scope where it was found.
-    """
-    for scope, registry in get_scopes_to_query(scope).items():
-        repo = registry.repository_registry.get_repo_by_name(name)
-        if repo:
-            return repo, scope
-    return None, None
-
-
 @tool_app.command("import")
+@handle_errors
 def tool_import(
     ctx: typer.Context,
     path: Path = typer.Argument(
@@ -110,117 +78,119 @@ def tool_import(
     force: bool = typer.Option(
         False, "--force", help="Force overwrite if the package already exists"
     ),
-    group: str = typer.Option(
+    group: Optional[str] = typer.Option(
         None, "--group", help="Custom group name for the tool package (optional)"
     ),
 ):
     """
     Imports a tool package (or multiple tool packages) into the registry.
     """
-    scope = ctx.obj["scope"]
-    registry_dir = USER_REGISTRY_DIR if scope == "user" else WORKSPACE_REGISTRY_DIR
-    pkg_manager = PackageManager(registry_dir)
-    registry = RegistryManager(registry_dir)
-    import_and_register_packages(pkg_manager, registry, path, group, force)
+    logger.info("Starting tool import: path=%s, force=%s, group=%s", path, force, group)
+    service = ToolService.from_context(ctx)
+    service.import_tool(path, group or "default", force)
+    logger.info("Tool import completed successfully for path: %s", path)
 
 
 @tool_app.command("list")
+@handle_errors
 def tool_list(
     ctx: typer.Context,
-    command: str = typer.Option(None, help="Filter by tool command"),
-    name: str = typer.Option(None, help="Filter by tool name (partial match)"),
-    description: str = typer.Option(None, help="Filter by tool description"),
-    location: str = typer.Option(None, help="Filter by tool location (partial match)"),
-    group: str = typer.Option(None, help="Filter by tool group"),
-    active: bool = typer.Option(None, help="Filter by active status"),
-    scope: str = typer.Option(
-        None,
-        "--scope",
-        help="Scope to filter: 'user' or 'workspace'. If omitted, both are shown.",
-    ),
+    command: Optional[str] = typer.Option(None, help="Filter by tool command"),
+    name: Optional[str] = typer.Option(None, help="Filter by tool name (partial match)"),
+    description: Optional[str] = typer.Option(None, help="Filter by tool description"),
+    location: Optional[str] = typer.Option(None, help="Filter by tool location (partial match)"),
+    group: Optional[str] = typer.Option(None, help="Filter by tool group"),
+    active: Optional[bool] = typer.Option(None, help="Filter by active status"),
 ):
     """
-    Lists all tools in the registry, with filtering options.
-    By default, both user and workspace scopes are displayed.
+    Lists all tools in the effective registry with detailed information.
     """
-    scopes_to_query: Dict[str, RegistryManager] = get_scopes_to_query(scope)
-    found_any = False
-    for sc, registry in scopes_to_query.items():
-        tools = registry.package_registry.list_packages(
-            command=command,
-            name=name,
-            description=description,
-            location=location,
-            group=group,
-            active=active,
-        )
-        typer.echo(f"\nScope: {sc.capitalize()}")
-        typer.echo("------------------------------------")
-        if tools:
-            found_any = True
-            for tool in tools:
-                print_tool_summary(tool)
-        else:
-            typer.echo("No tools found in this scope.")
-    if not found_any:
+    logger.info("Listing tools with filters: command=%s, name=%s, description=%s, location=%s, group=%s, active=%s",
+                command, name, description, location, group, active)
+    registry, _, _, _, _ = get_managers(ctx)
+    tools = registry.package_registry.list_packages(
+        command=command,
+        name=name,
+        description=description,
+        location=location,
+        group=group,
+        active=active,
+    )
+    if tools:
+        headers = ["Command", "Name", "Description", "Location", "Group", "Active"]
+        rows = [
+            [
+                str(tool.get("command", "")),
+                str(tool.get("name", "")),
+                str(tool.get("description", "")),
+                str(tool.get("location", "")),
+                str(tool.get("group", "")),
+                str(tool.get("active", "")),
+            ]
+            for tool in tools
+        ]
+        print_table(headers, rows)
+    else:
         typer.echo("No tools found.")
+        logger.info("No tools found with provided filters.")
 
 
 @tool_app.command("info")
+@handle_errors
 def tool_info(
     ctx: typer.Context,
     command: str = typer.Argument(..., help="Unique tool command identifier"),
-    scope: str = typer.Option(
-        None,
-        "--scope",
-        help="Scope to query: 'user' or 'workspace'. If omitted, both are queried.",
-    ),
 ):
     """
     Displays detailed information and available scripts for the specified tool.
     """
-    pkg, scope = get_package_from_registries(command, scope)
+    logger.info("Fetching info for tool: %s", command)
+    registry, _, _, _, _ = get_managers(ctx)
+    pkg = registry.retrieve_package(command)
     if pkg:
         print_tool_details(pkg)
         typer.echo("\nAvailable Scripts:")
-        scripts = pkg.get("scripts", {})
-        for script_name, script in scripts.items():
+        for script_name, script in pkg.get("scripts", {}).items():
             print_script_info(command, script_name, script)
         typer.secho("-" * 60, fg="green")
+        logger.info("Displayed info for tool '%s'.", command)
     else:
-        typer.secho(f"Tool '{command}' not found in the specified scope.", fg="red")
+        typer.secho(f"Tool '{command}' not found in the effective registry.", fg="red")
+        logger.warning("Tool '%s' not found.", command)
 
 
 @tool_app.command("remove")
+@handle_errors
 def tool_remove(
     ctx: typer.Context,
     command: str = typer.Argument(..., help="Unique tool command to remove"),
 ):
     """
-    Removes a tool package from the specified scope.
+    Removes a tool package from the effective registry.
     """
-    scope = ctx.obj["scope"]
-    registry_dir = USER_REGISTRY_DIR if scope == "user" else WORKSPACE_REGISTRY_DIR
-    pkg_manager = PackageManager(registry_dir)
-    registry = RegistryManager(registry_dir)
-    remove_and_unregister_single_package(pkg_manager, registry, command)
+    logger.info("Attempting to remove tool with command: %s", command)
+    service = ToolService.from_context(ctx)
+    service.remove_tool(command)
+    typer.echo(f"Tool '{command}' removed successfully.")
+
 
 @tool_app.command("remove-group")
+@handle_errors
 def tool_remove_group(
     ctx: typer.Context,
     group: str = typer.Argument(..., help="Group name to remove"),
 ):
     """
-    Removes all tool packages in the specified group from the registry.
+    Removes all tool packages in the specified group from the effective registry.
     """
-    scope = ctx.obj["scope"]
-    registry_dir = USER_REGISTRY_DIR if scope == "user" else WORKSPACE_REGISTRY_DIR
-    pkg_manager = PackageManager(registry_dir)
-    registry = RegistryManager(registry_dir)
-    remove_and_unregister_group_packages(pkg_manager, registry, group)
+    logger.info("Attempting to remove all tools in group: %s", group)
+    service = ToolService.from_context(ctx)
+    service.remove_group_tools(group)
+    typer.echo(f"All tools in group '{group}' removed successfully.")
 
 
 @tool_app.command("move")
+@handle_errors
 def tool_move(
     ctx: typer.Context,
     command: str = typer.Argument(..., help="Unique tool command to move"),
@@ -232,39 +202,20 @@ def tool_move(
     ),
 ):
     """
-    Moves a tool package from one registry to the other (user ⇄ workspace).
+    Moves a tool package from one registry to the other.
     """
+    logger.info("Initiating move of tool '%s' to target registry: %s", command, to)
     if to.lower() not in ("user", "workspace"):
         typer.echo("Invalid target registry specified. Choose 'user' or 'workspace'.")
+        logger.error("Invalid target registry specified for move: %s", to)
         raise typer.Exit(code=1)
-    not_to = "workspace" if to == "user" else "user"
-    source_dir = USER_REGISTRY_DIR if to == "workspace" else WORKSPACE_REGISTRY_DIR
-    source_registry = RegistryManager(source_dir)
-    source_pkg_manager = PackageManager(source_dir)
-
-    pkg_info = source_registry.package_registry.get_package(command)
-    if not pkg_info:
-        typer.echo(f"Tool '{command}' not found in {not_to} registry.")
-        raise typer.Exit(code=1)
-
-    target_dir = USER_REGISTRY_DIR if to == "user" else WORKSPACE_REGISTRY_DIR
-    target_registry = RegistryManager(target_dir)
-    target_pkg_manager = PackageManager(target_dir)
-
-    # Import the package into the target registry
-    import_and_register_packages(
-        target_pkg_manager,
-        target_registry,
-        Path(pkg_info["location"]),
-        pkg_info["group"],
-        force,
-    )
-    # Delete the package from the source registry
-    remove_and_unregister_single_package(source_pkg_manager, source_registry, command)
+    service = ToolService.from_context(ctx)
+    service.move_tool(command, to, force)
     typer.echo(f"Tool '{command}' moved to {to} registry.")
 
 
 @tool_app.command("export")
+@handle_errors
 def tool_export(
     ctx: typer.Context,
     tool_command: str = typer.Argument(..., help="Unique tool command to export"),
@@ -273,21 +224,16 @@ def tool_export(
     """
     Exports a tool package as a ZIP archive.
     """
-    scope = ctx.obj["scope"]
-    package_registry = RegistryManager(ctx.obj["registry_dir"])
-    pkg_manager = PackageManager(ctx.obj["registry_dir"])
-    pkg_info = package_registry.package_registry.get_package(tool_command)
-    if not pkg_info:
-        typer.echo(f"Tool '{tool_command}' not found in {scope} registry.")
-        raise typer.Exit(code=1)
-    pkg_location = Path(pkg_info["location"])
-    output = (Path.cwd() / output).resolve()
-    pkg_manager.export_package(pkg_location, output)
-    typer.echo(f"Tool '{tool_command}' exported to {output}.")
+    logger.info("Exporting tool '%s' to output path: %s", tool_command, output)
+    service = ToolService.from_context(ctx)
+    service.export_tool(tool_command, output)
+    typer.echo(f"Tool '{tool_command}' exported successfully.")
 
 
 @tool_app.command("customize")
+@handle_errors
 def tool_customize(
+    ctx: typer.Context,
     tool_command: str = typer.Argument(..., help="Unique tool command to customize"),
     force: bool = typer.Option(
         False, "--force", help="Force overwrite if the package already exists"
@@ -296,42 +242,20 @@ def tool_customize(
     """
     Copies a tool package from the user registry to the workspace for customization.
     """
-    user_registry = RegistryManager(USER_REGISTRY_DIR)
-    workspace_registry = RegistryManager(WORKSPACE_REGISTRY_DIR)
-    workspace_pkg_manager = PackageManager(WORKSPACE_REGISTRY_DIR)
-
-    pkg_info = user_registry.package_registry.get_package(tool_command)
-    if not pkg_info:
-        typer.echo(f"Tool '{tool_command}' not found in user registry.")
-        raise typer.Exit(code=1)
-    pkg_location = Path(pkg_info["location"])
-    new_pkg = workspace_pkg_manager.import_package(
-        pkg_location, group=pkg_info["group"], force=force
-    )[0]
-    workspace_registry.register_package(new_pkg.to_dict())
+    logger.info("Customizing tool '%s'.", tool_command)
+    service = ToolService.from_context(ctx)
+    service.customize_tool(tool_command, force)
+    typer.echo(f"Tool '{tool_command}' copied to workspace for customization.")
 
 
 @tool_app.command("sync")
+@handle_errors
 def tool_sync(ctx: typer.Context):
     """
-    Syncs active tool packages from the registry by re-importing them
-    from their location on disk.
+    Syncs active tool packages from the registry by re-importing them from disk.
     """
-    registries = get_scopes_to_query(ctx.obj["scope"])
-    for scope, reg_dir in registries.items():
-        registry = RegistryManager(reg_dir)
-        pkg_manager = PackageManager(reg_dir)
-        count = 0
-        # Get only active packages from the registry.
-        active_packages = registry.package_registry.list_packages(active=True)
-        for pkg in active_packages:
-            pkg_location = Path(pkg["location"])
-            try:
-                new_pkg = pkg_manager.update_package(pkg_location, pkg["group"])
-            except Exception as e:
-                typer.echo(f"Error importing package from {pkg_location}: {e}")
-                continue
-
-            registry.register_package(new_pkg.to_dict(), force=True)
-            count += 1
-        typer.echo(f"Synced {count} active tool packages in {scope} registry.")
+    logger.info("Starting tool synchronization.")
+    service = ToolService.from_context(ctx)
+    counts = service.sync_tools()
+    for sc, count in counts.items():
+        typer.echo(f"Synced {count} active tool packages in {sc} registry.")
