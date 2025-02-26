@@ -3,14 +3,14 @@ name: Build and Release devtools
 on:
   push:
     tags:
-      - "v*.*.*"  # Triggers on versioned tags (e.g., v1.0.0)
+      - "v*.*.*" # Triggers on versioned tags (e.g., v1.0.0)
 
 permissions:
-  contents: write  # Grant permission to create releases
+  contents: write # Grant permission to create releases
 
 jobs:
   build:
-    runs-on: windows-latest  # Ensure Windows for .exe builds
+    runs-on: windows-latest # Ensure Windows for .exe builds
 
     steps:
       - name: Checkout repository
@@ -30,8 +30,7 @@ jobs:
         shell: powershell
 
       - name: Write Version File
-        run: echo "${{ github.ref_name }}" | Out-File -Encoding utf8 .version
-        shell: powershell
+        run: echo "${{ github.ref_name }}" > .version
 
       - name: Run build script
         run: .venv\Scripts\python.exe build.py --ci --clean
