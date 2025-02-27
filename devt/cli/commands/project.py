@@ -14,9 +14,14 @@ WORKSPACE_TEMPLATE = {
     "scripts": {"test": "echo workspace test"},
 }
 
+
 @project_app.command("init")
 def project_init(
-    file_format: str = typer.Option("yaml", "--format", help="File format to initialize the workspace. Options: 'yaml' (default) or 'json'.")
+    file_format: str = typer.Option(
+        "yaml",
+        "--format",
+        help="File format to initialize the workspace. Options: 'yaml' (default) or 'json'.",
+    )
 ):
     """
     Initializes a new development environment in the current project.
@@ -34,7 +39,10 @@ def project_init(
         workspace_file = WORKSPACE_APP_DIR / "manifest.yaml"
         workspace_content = yaml.dump(WORKSPACE_TEMPLATE, sort_keys=False)
     workspace_file.write_text(workspace_content)
-    typer.echo(f"Project initialized successfully with {file_format_lower.upper()} format.")
+    typer.echo(
+        f"Project initialized successfully with {file_format_lower.upper()} format."
+    )
+
 
 @project_app.command("info")
 def project_info():
@@ -46,6 +54,7 @@ def project_info():
         typer.echo(workspace_file.read_text())
     else:
         typer.echo("No workspace file found. Run 'devt project init' first.")
+
 
 # @project_app.command("list")
 # def project_list():
