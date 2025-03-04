@@ -106,6 +106,7 @@ def download_file(download_url: str, save_path: Path) -> bool:
 
 def check_updates() -> None:
     """Check for updates and notify the user."""
+    typer.echo("")
     latest_version = get_latest_version()
     if __version__ == "dev":
         typer.echo("Running in development mode. Upgrade checks are disabled.")
@@ -120,7 +121,7 @@ def check_updates() -> None:
 @self_app.command("version")
 def self_version() -> None:
     """Display the current DevT version and perform an update check."""
-    typer.echo(f"DevT version: {__version__}")
+    typer.echo(f"DevT v{__version__}")
     logger.info("Version information requested.")
     check_updates()
 
