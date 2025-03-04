@@ -134,19 +134,15 @@ def build(
     clean_before: bool = typer.Option(
         False, "--clean", help="Clean build artifacts before building"
     ),
-    ci: bool = typer.Option(
-        False, "--ci", help="Run in CI mode (skip virtual environment setup)"
-    ),
-    include_installer: bool = typer.Option(
-        True, "--include-installer", help="Build the installer alongside the main app"
+    skip_installer: bool = typer.Option(
+        False, "--skip-installer", help="Build the installer alongside the main app"
     ),
 ):
     """Build the project into standalone executables."""
     if clean_before:
         clean()
 
-    if not ci:
-        ensure_venv()
+    ensure_venv()
 
     # Ensure PyInstaller is installed
     ensure_pyinstaller()
@@ -175,7 +171,7 @@ def build(
         raise e
 
     # Build the installer if enabled
-    if include_installer:
+    if skip_installer:
         logging.info("Building installer...")
 
         if not Path(UPDATER_SCRIPT).exists():

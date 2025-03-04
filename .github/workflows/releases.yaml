@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest # Ensure Windows for .exe builds
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest] # Build for Windows, Linux, macOS
 
     steps:
       - name: Checkout repository
@@ -21,24 +24,81 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Install dependencies
-        run: |
-          python -m venv .venv
-          .venv\Scripts\activate
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-        shell: powershell
-
       - name: Write Version File
         run: echo "${{ github.ref_name }}" > .version
 
-      - name: Run build script
-        run: .venv\Scripts\python.exe build.py --ci --clean
+      - name: Run build script (Windows)
+        if: runner.os == 'Windows'
+        run: .venv\Scripts\python.exe build.py --clean
         shell: cmd
 
+      - name: Run build script (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          python build.py --clean
+        shell: bash
+
       - name: List dist directory contents
-        run: dir dist
+        run: ls dist
+        shell: bash
+
+      # Test step for Windows executables
+      - name: Test built executable (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          REM Read expected version from .version file
+          for /f "delims=" %%i in (".version") do set "EXPECTED_VERSION=%%i"
+          echo Expected version is %EXPECTED_VERSION%
+          REM Run the built executable and capture output
+          for /f "delims=" %%i in ('.\\dist\\devt.exe self version') do set "OUTPUT=%%i"
+          echo Output is %OUTPUT%
+          REM Check if the output contains the expected version
+          echo %OUTPUT% | findstr /C:"%EXPECTED_VERSION%"
         shell: cmd
+
+      # Test step for Linux and macOS executables
+      - name: Test built executable (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          EXPECTED_VERSION=$(cat .version)
+          echo "Expected version is $EXPECTED_VERSION"
+          OUTPUT=$(./dist/devt self version)
+          echo "Output is $OUTPUT"
+          if [[ "$OUTPUT" != *"$EXPECTED_VERSION"* ]]; then
+            echo "Version mismatch: expected '$EXPECTED_VERSION' to be in output"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: devt-${{ runner.os }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: devt-Windows
+          path: dist-windows
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: devt-Linux
+          path: dist-linux
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: devt-macOS
+          path: dist-macos
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -49,7 +109,11 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            dist/devt.exe
-            dist/devt_installer.exe
+            dist-windows/devt.exe
+            dist-windows/devt_installer.exe
+            dist-linux/devt
+            dist-linux/devt_installer
+            dist-macos/devt
+            dist-macos/devt_installer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
