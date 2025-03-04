@@ -20,6 +20,7 @@ from devt.config_manager import (
 )
 from devt.registry.manager import RegistryManager
 from devt.package.manager import PackageManager
+from devt.utils import find_file_type
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,18 @@ def setup_app_context(
 
     # Determine registry directory based on effective scope.
     effective_scope: str = effective_config["scope"]
+
+    if effective_scope.lower() == "workspace":
+        # Verify the current directory is a Git repository.
+        git_repo = Path.cwd() / ".git"
+        if not git_repo.exists():
+            typer.echo("Workspace scope selected but no Git repository found.")
+            # Ensure the workspace registry exists and has a manifest.
+            has_registry = WORKSPACE_REGISTRY_DIR.exists() and find_file_type("manifest", WORKSPACE_REGISTRY_DIR)
+            if not has_registry:
+                typer.echo("No workspace registry found. Run 'devt workspace init' to create one.")
+                raise typer.Exit(code=1)
+    
     registry_dir: Path = (
         WORKSPACE_REGISTRY_DIR
         if effective_scope.lower() == "workspace"

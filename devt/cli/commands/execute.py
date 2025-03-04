@@ -76,7 +76,7 @@ def run_workspace(
     workspace_file = find_file_type("manifest", WORKSPACE_APP_DIR)
     if not workspace_file.exists():
         typer.echo("No workspace file found in the current directory.")
-        typer.echo("Run 'devt project init' to create a new workspace.")
+        typer.echo("Run 'devt workspace init' to create a new workspace.")
         raise typer.Exit(code=1)
 
     try:

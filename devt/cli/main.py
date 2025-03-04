@@ -11,7 +11,7 @@ import logging
 from devt.cli.helpers import is_git_installed, setup_app_context
 from devt.cli.commands.config import config_app
 from devt.cli.commands.tool import tool_app
-from devt.cli.commands.project import project_app
+from devt.cli.commands.workspace import workspace_app
 from devt.cli.commands.self import self_app
 from devt.cli.commands.execute import execute_app
 
@@ -57,7 +57,7 @@ def main(
 # Add grouped commands
 app.add_typer(config_app, name="config")
 app.add_typer(tool_app, name="tool")
-app.add_typer(project_app, name="project")
+app.add_typer(workspace_app, name="workspace")
 app.add_typer(self_app, name="self")
 
 if is_git_installed():
