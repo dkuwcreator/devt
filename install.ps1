@@ -57,6 +57,15 @@ function Install-App {
     if (-not (Test-Path $INSTALL_DIR)) {
         New-Item -ItemType Directory -Path $INSTALL_DIR -Force | Out-Null
     }
+    else {
+        Write-Host "$INSTALL_DIR already exists. Checking for existing files..."
+        if (Test-Path $EXECUTABLE_PATH) {
+            Write-Host "File $EXECUTABLE_PATH exists and will be overwritten."
+        }
+        if (Test-Path $INSTALLER_PATH) {
+            Write-Host "File $INSTALLER_PATH exists and will be overwritten."
+        }
+    }
 
     Write-Host "Downloading $OUTPUT_NAME from GitHub..."
     try {
