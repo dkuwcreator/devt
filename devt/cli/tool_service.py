@@ -24,7 +24,7 @@ class ToolService:
 
     @classmethod
     def from_context(cls, ctx: typer.Context) -> "ToolService":
-        registry, pkg_manager, registry_dir, scope = get_managers(ctx)
+        _, _, registry_dir, scope = get_managers(ctx)
         return cls(registry_dir, scope)
 
     def __init__(

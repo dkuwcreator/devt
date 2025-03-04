@@ -145,7 +145,7 @@ def tool_info(
     Displays detailed information and available scripts for the specified tool.
     """
     logger.info("Fetching info for tool: %s", command)
-    registry, _, _, _, _ = get_managers(ctx)
+    registry, _, _, _ = get_managers(ctx)
     pkg = registry.retrieve_package(command)
     if pkg:
         print_tool_details(pkg)
