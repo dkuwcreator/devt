@@ -134,6 +134,9 @@ def build(
     clean_before: bool = typer.Option(
         False, "--clean", help="Clean build artifacts before building"
     ),
+    ci: bool = typer.Option(
+        False, "--ci", help="Run in CI mode (no prompts, exit on error)"
+    ),
     skip_installer: bool = typer.Option(
         False, "--skip-installer", help="Build the installer alongside the main app"
     ),
@@ -142,7 +145,9 @@ def build(
     if clean_before:
         clean()
 
-    ensure_venv()
+    # If not --ci is enabled, ensure the environment is set up
+    if not ci:
+        ensure_venv()
 
     # Ensure PyInstaller is installed
     ensure_pyinstaller()

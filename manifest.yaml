@@ -11,6 +11,7 @@ scripts:
     replace: Copy-Item -Path .\dist\* -Destination $env:USERPROFILE\devt -Recurse -Force
     push: ./scripts/push.ps1
     tag: ./scripts/tag.ps1
+    revert: ./scripts/revert.ps1
   workspace_test: echo "This is a test of the workspace!"
   requirements: pip install -r requirements.txt
   deactivate: deactivate

@@ -29,13 +29,23 @@ jobs:
 
       - name: Run build script (Windows)
         if: runner.os == 'Windows'
-        run: python build.py --clean
         shell: cmd
+        run: |
+          python -m venv .venv
+          .venv\Scripts\activate
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python build.py --clean
 
       - name: Run build script (Linux/macOS)
         if: runner.os != 'Windows'
-        run: python build.py --clean
         shell: bash
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python build.py --clean
 
       - name: List dist directory contents
         run: ls dist
