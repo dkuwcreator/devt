@@ -68,9 +68,7 @@ def notify_upgrade_if_available(current_version: str, latest_version: str) -> No
     logger.info(
         "Current version: %s, Latest version: %s", current_version, latest_version
     )
-    if latest_version and version.parse(latest_version) > version.parse(
-        current_version
-    ):
+    if latest_version and version.parse(latest_version) > version.parse(current_version):
         typer.echo(
             f"Upgrade available: {latest_version} (installed: {current_version})\n"
             f"Run '{APP_NAME} self upgrade' to update."
@@ -135,15 +133,51 @@ def self_show() -> None:
 
 
 @self_app.command("upgrade")
-def self_upgrade() -> None:
+def self_upgrade(
+    force: bool = False,
+    target_version: str = typer.Option(
+        None,
+        "--version",
+        help="Target version to upgrade/downgrade to. If omitted, the latest version is used.",
+    ),
+    downgrade: bool = typer.Option(
+        False, "--downgrade", help="Allow downgrading if target version is lower than the current version."
+    )
+) -> None:
     """Trigger the upgrade process using the external installer."""
     if __version__ == "dev":
         typer.echo("Upgrade is not available in development mode.")
         logger.info("Upgrade attempted in development mode; aborting.")
         return
 
-    typer.echo("Checking for updates...")
-    logger.info("Starting upgrade process.")
+    # If no target version provided, get the latest version.
+    if target_version is None:
+        target_version = get_latest_version()
+        if not target_version:
+            typer.echo("Could not determine the latest version. Aborting upgrade.")
+            return
+
+    # Check if the target version equals current version.
+    if target_version == __version__ and not force:
+        typer.echo(f"You are already running version {__version__}. Use --force to re-install.")
+        return
+
+    # Prevent downgrade unless explicitly allowed.
+    if version.parse(target_version) < version.parse(__version__) and not downgrade:
+        typer.echo(
+            f"Target version {target_version} is lower than the current version ({__version__}). "
+            "Use --downgrade to perform a downgrade."
+        )
+        return
+
+    # If upgrading, you might also check that target_version is greater than current version.
+    if version.parse(target_version) > version.parse(__version__) and not force:
+        # In this example, force is not required for a normal upgrade.
+        typer.echo(f"Upgrading to version {target_version}...")
+    elif downgrade:
+        typer.echo(f"Downgrading to version {target_version}...")
+
+    logger.info("Starting upgrade process to target version: %s", target_version)
 
     install_dir = get_install_dir()
     install_dir.mkdir(exist_ok=True)
@@ -151,7 +185,7 @@ def self_upgrade() -> None:
 
     installer_exe_path = install_dir / f"{APP_NAME}_installer.exe"
 
-    # Download the installer
+    # Download the installer (updater)
     if not download_file(GITHUB_UPDATER_URL, installer_exe_path):
         logger.error("Updater download failed. Aborting upgrade.")
         typer.echo("Updater download failed. Aborting upgrade.")
@@ -160,10 +194,55 @@ def self_upgrade() -> None:
     typer.echo(f"Updater downloaded to {installer_exe_path}")
     logger.info("Updater downloaded. Launching installer...")
 
+    # Build the command-line arguments for the external installer.
+    cmd = [str(installer_exe_path), str(install_dir), target_version]
+    if downgrade:
+        cmd.append("--downgrade")
+    if force:
+        cmd.append("--force")
+
     try:
-        subprocess.Popen([str(installer_exe_path), str(install_dir)], close_fds=True)
+        subprocess.Popen(cmd, close_fds=True)
         typer.echo("Updater started. Closing DevT...")
-        sys.exit(0)  # Exit DevT to allow the installer to replace it safely
+        sys.exit(0)  # Exit DevT to allow the installer to replace it safely.
     except Exception as e:
         logger.error("Failed to launch installer: %s", e)
         typer.echo("Failed to launch installer.")
+
+
+@self_app.command("uninstall")
+def self_uninstall() -> None:
+    """Trigger the uninstallation process using the external installer."""
+    if __version__ == "dev":
+        typer.echo("Uninstall is not available in development mode.")
+        logger.info("Uninstall attempted in development mode; aborting.")
+        return
+
+    install_dir = get_install_dir()
+    install_dir.mkdir(exist_ok=True)
+    logger.info("Ensured installation directory exists: %s", install_dir)
+
+    installer_exe_path = install_dir / f"{APP_NAME}_installer.exe"
+
+    # Download the installer if it doesn't exist
+    if not installer_exe_path.exists():
+        typer.echo("Downloading uninstaller...")
+        if not download_file(GITHUB_UPDATER_URL, installer_exe_path):
+            logger.error("Uninstaller download failed. Aborting uninstall.")
+            typer.echo("Uninstaller download failed. Aborting uninstall.")
+            return
+
+    typer.echo(f"Uninstaller downloaded to {installer_exe_path}")
+    logger.info("Uninstaller downloaded. Launching uninstaller...")
+
+    try:
+        subprocess.Popen([str(installer_exe_path), "uninstall"], close_fds=True)
+        typer.echo("Uninstaller started. Closing DevT...")
+        sys.exit(0)  # Exit DevT to allow the uninstaller to clean up safely
+    except Exception as e:
+        logger.error("Failed to launch uninstaller: %s", e)
+        typer.echo("Failed to launch uninstaller.")
+
+
+if __name__ == "__main__":
+    self_app()
