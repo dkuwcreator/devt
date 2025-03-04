@@ -19,7 +19,7 @@ GITHUB_LATEST_RELEASE_URL = (
     "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
 )
 GITHUB_UPDATER_URL = (
-    "https://github.com/dkuwcreator/devt/releases/latest/download/devt_updater.exe"
+    "https://github.com/dkuwcreator/devt/releases/latest/download/devt_installer.exe"
 )
 TIMEOUT_CONNECT = 10.0
 TIMEOUT_READ = 10.0
@@ -136,7 +136,7 @@ def self_show() -> None:
 
 @self_app.command("upgrade")
 def self_upgrade() -> None:
-    """Trigger the upgrade process using the external updater."""
+    """Trigger the upgrade process using the external installer."""
     if __version__ == "dev":
         typer.echo("Upgrade is not available in development mode.")
         logger.info("Upgrade attempted in development mode; aborting.")
@@ -149,21 +149,21 @@ def self_upgrade() -> None:
     install_dir.mkdir(exist_ok=True)
     logger.info("Ensured installation directory exists: %s", install_dir)
 
-    updater_exe_path = install_dir / f"{APP_NAME}_updater.exe"
+    installer_exe_path = install_dir / f"{APP_NAME}_installer.exe"
 
-    # Download the updater
-    if not download_file(GITHUB_UPDATER_URL, updater_exe_path):
+    # Download the installer
+    if not download_file(GITHUB_UPDATER_URL, installer_exe_path):
         logger.error("Updater download failed. Aborting upgrade.")
         typer.echo("Updater download failed. Aborting upgrade.")
         return
 
-    typer.echo(f"Updater downloaded to {updater_exe_path}")
-    logger.info("Updater downloaded. Launching updater...")
+    typer.echo(f"Updater downloaded to {installer_exe_path}")
+    logger.info("Updater downloaded. Launching installer...")
 
     try:
-        subprocess.Popen([str(updater_exe_path), str(install_dir)], close_fds=True)
+        subprocess.Popen([str(installer_exe_path), str(install_dir)], close_fds=True)
         typer.echo("Updater started. Closing DevT...")
-        sys.exit(0)  # Exit DevT to allow the updater to replace it safely
+        sys.exit(0)  # Exit DevT to allow the installer to replace it safely
     except Exception as e:
-        logger.error("Failed to launch updater: %s", e)
-        typer.echo("Failed to launch updater.")
+        logger.error("Failed to launch installer: %s", e)
+        typer.echo("Failed to launch installer.")

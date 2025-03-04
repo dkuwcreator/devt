@@ -22,7 +22,7 @@ VENV_DIR = SESSION_CWD / config.get("VENV_DIR", ".venv")
 # Updated default OUTPUT_NAME to "devt" to match the release filenames.
 ENTRY_SCRIPT = config.get("ENTRY_SCRIPT", "my_project/cli.py")
 OUTPUT_NAME = config.get("OUTPUT_NAME", "devt")
-UPDATER_SCRIPT = config.get("UPDATER_SCRIPT", "my_project/updater.py")
+UPDATER_SCRIPT = config.get("UPDATER_SCRIPT", "my_project/installer.py")
 DIST_DIR = SESSION_CWD / config.get("DIST_DIR", "dist")
 
 # Where your package's __init__.py lives
@@ -115,7 +115,7 @@ def clean() -> None:
     build_dir = SESSION_CWD / "build"
     spec_files = [
         SESSION_CWD / f"{OUTPUT_NAME}.spec",
-        SESSION_CWD / f"{OUTPUT_NAME}_updater.spec",
+        SESSION_CWD / f"{OUTPUT_NAME}_installer.spec",
     ]
 
     for path in [build_dir, DIST_DIR, *spec_files]:
@@ -137,8 +137,8 @@ def build(
     ci: bool = typer.Option(
         False, "--ci", help="Run in CI mode (skip virtual environment setup)"
     ),
-    include_updater: bool = typer.Option(
-        True, "--include-updater", help="Build the updater alongside the main app"
+    include_installer: bool = typer.Option(
+        True, "--include-installer", help="Build the installer alongside the main app"
     ),
 ):
     """Build the project into standalone executables."""
@@ -174,25 +174,25 @@ def build(
         logging.error("Main build process failed.")
         raise e
 
-    # Build the updater if enabled
-    if include_updater:
-        logging.info("Building updater...")
+    # Build the installer if enabled
+    if include_installer:
+        logging.info("Building installer...")
 
         if not Path(UPDATER_SCRIPT).exists():
             logging.error(f"Updater script not found: {UPDATER_SCRIPT}")
             raise FileNotFoundError(f"Updater script missing: {UPDATER_SCRIPT}")
 
-        cmd_updater = [
+        cmd_installer = [
             str(PYTHON_EXECUTABLE),
             "-m",
             "PyInstaller",
             "--onefile",
             "--name",
-            f"{OUTPUT_NAME}_updater",
+            f"{OUTPUT_NAME}_installer",
             UPDATER_SCRIPT,
         ]
         try:
-            subprocess.run(cmd_updater, check=True)
+            subprocess.run(cmd_installer, check=True)
             logging.info(
                 f"Updater build completed. Executable is in the '{DIST_DIR}' folder."
             )

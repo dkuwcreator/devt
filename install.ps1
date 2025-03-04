@@ -6,15 +6,15 @@ param (
 
 # Constants
 $OUTPUT_NAME         = "devt"
-$UPDATER_NAME        = "devt_updater"
+$INSTALLER_NAME        = "devt_installer"
 $DEFAULT_INSTALL_DIR = Join-Path $env:USERPROFILE $OUTPUT_NAME  # Logical install location
 $DOWNLOAD_URL        = "https://github.com/dkuwcreator/devt/releases/latest/download/devt.exe"
-$UPDATER_URL         = "https://github.com/dkuwcreator/devt/releases/latest/download/devt_updater.exe"
+$INSTALLER_URL         = "https://github.com/dkuwcreator/devt/releases/latest/download/devt_installer.exe"
 
 # Determine installation directory
 $INSTALL_DIR      = if ($InstallPath) { $InstallPath } else { $DEFAULT_INSTALL_DIR }
 $EXECUTABLE_PATH  = Join-Path $INSTALL_DIR "$OUTPUT_NAME.exe"
-$UPDATER_PATH     = Join-Path $INSTALL_DIR "$UPDATER_NAME.exe"
+$INSTALLER_PATH     = Join-Path $INSTALL_DIR "$INSTALLER_NAME.exe"
 
 # Function to update the User PATH environment variable
 function Update-UserPath {
@@ -61,16 +61,16 @@ function Install-App {
     Write-Host "Downloading $OUTPUT_NAME from GitHub..."
     try {
         Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile $EXECUTABLE_PATH -UseBasicParsing -ErrorAction Stop
-        Invoke-WebRequest -Uri $UPDATER_URL -OutFile $UPDATER_PATH -UseBasicParsing -ErrorAction Stop
+        Invoke-WebRequest -Uri $INSTALLER_URL -OutFile $INSTALLER_PATH -UseBasicParsing -ErrorAction Stop
     }
     catch {
-        Write-Host "Failed to download $OUTPUT_NAME or $UPDATER_NAME. Check your network connection."
+        Write-Host "Failed to download $OUTPUT_NAME or $INSTALLER_NAME. Check your network connection."
         exit 1
     }
 
-    if ((Test-Path $EXECUTABLE_PATH) -and (Test-Path $UPDATER_PATH)) {
+    if ((Test-Path $EXECUTABLE_PATH) -and (Test-Path $INSTALLER_PATH)) {
         Write-Host "$OUTPUT_NAME successfully installed to $INSTALL_DIR"
-        Write-Host "$UPDATER_NAME successfully installed to $INSTALL_DIR"
+        Write-Host "$INSTALLER_NAME successfully installed to $INSTALL_DIR"
     }
     else {
         Write-Host "Download completed, but files were not found."

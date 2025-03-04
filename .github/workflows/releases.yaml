@@ -50,6 +50,6 @@ jobs:
           prerelease: false
           files: |
             dist/devt.exe
-            dist/devt_updater.exe
+            dist/devt_installer.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

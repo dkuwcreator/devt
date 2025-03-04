@@ -1,3 +1,4 @@
+import ssl
 import typer
 import logging
 import sys
@@ -11,15 +12,16 @@ import truststore
 app = typer.Typer()
 
 # Constants
-GITHUB_DOWNLOAD_URL = "https://github.com/dkuwcreator/devt/releases/latest/download/devt.exe"
+LATEST_DOWNLOAD_URL = "https://github.com/dkuwcreator/devt/releases/latest/download/devt.exe"
 TIMEOUT_CONNECT = 10.0
 TIMEOUT_READ = 30.0
 
-ctx = truststore.SSLContext()
+# SSL and HTTP Manager Setup
+ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 http = urllib3.PoolManager(ssl_context=ctx)
 
 
-def download_new_executable(url: str, destination: Path) -> bool:
+def download_executable(url: str, destination: Path) -> bool:
     logging.info("Downloading DevT update from %s...", url)
     try:
         response = http.request(
@@ -66,17 +68,23 @@ def restart_application(executable: Path) -> None:
 
 
 @app.command()
-def update(
+def install(
     install_dir: Path = typer.Argument(..., help="Installation directory for DevT"),
-    log_level: str = typer.Option("WARNING", "--log-level", help="Set the logging level (default: WARNING)")
+    log_level: str = typer.Option("WARNING", "--log-level", help="Set the logging level (default: WARNING)"),
+    version: str = typer.Option("latest", "--version", help="DevT version to install (default: latest)")
 ):
     numeric_level = getattr(logging, log_level.upper(), None)
     logging.basicConfig(level=numeric_level, format="%(asctime)s - %(levelname)s - %(message)s")
 
+    if version == "latest":
+        download_url = LATEST_DOWNLOAD_URL
+    else:
+        download_url = f"https://github.com/dkuwcreator/devt/releases/download/{version}/devt.exe"
+
     new_executable = install_dir / "devt_new.exe"
     current_executable = install_dir / "devt.exe"
 
-    if not download_new_executable(GITHUB_DOWNLOAD_URL, new_executable):
+    if not download_executable(download_url, new_executable):
         logging.error("Download failed. Exiting.")
         sys.exit(1)
 
