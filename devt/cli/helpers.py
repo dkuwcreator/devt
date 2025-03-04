@@ -6,6 +6,7 @@ Helper functions for CLI initialization and common tasks.
 
 import logging
 from pathlib import Path
+import shutil
 from typing import Any, Dict, Optional, Tuple
 
 import typer
@@ -21,6 +22,17 @@ from devt.registry.manager import RegistryManager
 from devt.package.manager import PackageManager
 
 logger = logging.getLogger(__name__)
+
+
+def is_git_installed() -> bool:
+    """Check if Git is installed on the system."""
+    return shutil.which("git") is not None
+
+
+def check_git_and_exit() -> None:
+    """Exit if Git is not found."""
+    if not is_git_installed():
+        raise typer.Exit(code=1)
 
 
 def setup_app_context(

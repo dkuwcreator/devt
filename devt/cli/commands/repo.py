@@ -1,11 +1,11 @@
 import functools
 import logging
-import shutil
-from typing import Callable, TypeVar, Any, Optional
+from typing import Callable, Dict, TypeVar, Any, Optional
 from typing_extensions import Annotated
 
 import typer
 
+from devt.cli.helpers import check_git_and_exit, is_git_installed
 from devt.utils import print_table
 from devt.registry.manager import RegistryManager
 from devt.repo_manager import RepoManager
@@ -32,17 +32,6 @@ def handle_errors(func: T) -> T:
     return wrapper  # type: ignore
 
 
-def is_git_installed() -> bool:
-    """Check if Git is installed on the system."""
-    return shutil.which("git") is not None
-
-
-def check_git_and_exit() -> None:
-    """Exit if Git is not found."""
-    if not is_git_installed():
-        raise typer.Exit(code=1)
-
-
 @repo_app.callback()
 def main(ctx: typer.Context) -> None:
     """
@@ -54,6 +43,21 @@ def main(ctx: typer.Context) -> None:
     ctx.obj["repo_manager"] = RepoManager(registry_dir)
     ctx.obj["tool_manager"] = ToolService.from_context(ctx)
     ctx.obj["sync_manager"] = SyncManager.from_context(ctx)
+
+    # Determine auto_sync setting from CLI or persisted configuration.
+    config: Dict[str, Any] = ctx.obj.get("config", {})
+    # If auto_sync is enabled and Git is installed, use the managers already in the context.
+    if config.get("auto_sync", False):
+        logger.info("Auto-sync option is enabled.")
+        if is_git_installed():
+            if ctx.invoked_subcommand != "repo":
+                logger.info("Git is installed and subcommand is not 'repo'; starting auto-sync.")
+                sync_manager = SyncManager.from_context(ctx)
+                sync_manager.start_background_sync(ctx)
+            else:
+                logger.info("Subcommand is 'repo'; skipping auto-sync.")
+        else:
+            logger.warning("Git is not installed; auto-sync will not be started.")
 
 
 @repo_app.command("add")
@@ -121,7 +125,7 @@ def repo_remove(
     registry = RegistryManager(registry_dir)
     repo_manager = RepoManager(registry_dir)
     repo = registry.repository_registry.get_repo_by_name(name=repo_name)
-    
+
     if not repo:
         logger.info("Repository '%s' not found.", repo_name)
         return
@@ -129,10 +133,10 @@ def repo_remove(
     location = repo.get("location")
     if location:
         repo_manager.remove_repo(str(location))
-    
+
     tool_manager = ToolService.from_context(ctx)
     tool_manager.remove_group_tools(repo_name)
-    
+
     try:
         registry.repository_registry.delete_repository(repo.get("url"))
     except Exception:
@@ -143,7 +147,9 @@ def repo_remove(
 @handle_errors
 def repo_sync(
     ctx: typer.Context,
-    repo_name: Annotated[Optional[str], typer.Argument(help="Name of the repository to sync")] = None,
+    repo_name: Annotated[
+        Optional[str], typer.Argument(help="Name of the repository to sync")
+    ] = None,
     force: bool = typer.Option(
         False, "--force", help="Force overwrite if repository already exists."
     ),
@@ -155,7 +161,7 @@ def repo_sync(
     registry = RegistryManager(registry_dir)
     sync_manager = SyncManager.from_context(ctx)
     repos = registry.repository_registry.list_repositories(name=repo_name)
-    
+
     if not repos:
         logger.info("No repositories found to sync.")
         return
