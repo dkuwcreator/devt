@@ -1,18 +1,32 @@
 import ssl
+import platform
 import typer
 import logging
 import sys
 import subprocess
 import shutil
 import time
+import json
 from pathlib import Path
 import urllib3
 import truststore
 
 app = typer.Typer()
 
-# Constants
-LATEST_DOWNLOAD_URL = "https://github.com/dkuwcreator/devt/releases/latest/download/devt.exe"
+def get_os_suffix() -> str:
+    os_name = platform.system()
+    if os_name == "Windows":
+        return "windows.exe"
+    elif os_name == "Linux":
+        return "linux"
+    elif os_name == "Darwin":
+        return "macos"
+    else:
+        return os_name.lower()
+
+OS_SUFFIX = get_os_suffix()
+
+# Timeouts for HTTP requests
 TIMEOUT_CONNECT = 10.0
 TIMEOUT_READ = 30.0
 
@@ -20,13 +34,42 @@ TIMEOUT_READ = 30.0
 ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 http = urllib3.PoolManager(ssl_context=ctx)
 
+def get_latest_version() -> str:
+    """Query GitHub API for the latest release tag."""
+    api_url = "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
+    logging.info("Fetching latest version from GitHub API...")
+    try:
+        response = http.request(
+            "GET", api_url,
+            timeout=urllib3.Timeout(connect=TIMEOUT_CONNECT, read=TIMEOUT_READ)
+        )
+        if response.status != 200:
+            raise Exception(f"HTTP Error {response.status}")
+        data = json.loads(response.data.decode("utf-8"))
+        latest_tag = data.get("tag_name")
+        if not latest_tag:
+            raise Exception("tag_name not found in API response")
+        logging.info("Latest version is %s", latest_tag)
+        return latest_tag
+    except Exception as err:
+        logging.error("Failed to get latest version: %s", err)
+        # Fallback: return a constant latest URL would be an option here.
+        return "latest"
+
+def get_download_url(version: str) -> str:
+    """
+    Build the download URL using the provided version and OS suffix.
+    If version is 'latest', retrieve the actual latest version first.
+    """
+    if version == "latest":
+        version = get_latest_version()
+    return f"https://github.com/dkuwcreator/devt/releases/download/{version}/devt-{version}-{OS_SUFFIX}"
 
 def download_executable(url: str, destination: Path) -> bool:
     logging.info("Downloading DevT update from %s...", url)
     try:
         response = http.request(
-            "GET",
-            url,
+            "GET", url,
             timeout=urllib3.Timeout(connect=TIMEOUT_CONNECT, read=TIMEOUT_READ)
         )
         if response.status != 200:
@@ -43,7 +86,6 @@ def download_executable(url: str, destination: Path) -> bool:
         logging.error("Failed to save update: %s", err)
         return False
 
-
 def replace_executable(new_exe: Path, current_exe: Path) -> None:
     backup = current_exe.with_suffix(".old")
     logging.info("Waiting for DevT to close...")
@@ -58,14 +100,12 @@ def replace_executable(new_exe: Path, current_exe: Path) -> None:
         logging.error("Error replacing executable: %s", err)
         sys.exit(1)
 
-
 def restart_application(executable: Path) -> None:
     logging.info("Restarting DevT with 'self version' arguments...")
     try:
         subprocess.Popen([str(executable), "self", "version"])
     except Exception as err:
         logging.error("Failed to restart DevT: %s", err)
-
 
 @app.command()
 def install(
@@ -76,13 +116,17 @@ def install(
     numeric_level = getattr(logging, log_level.upper(), None)
     logging.basicConfig(level=numeric_level, format="%(asctime)s - %(levelname)s - %(message)s")
 
-    if version == "latest":
-        download_url = LATEST_DOWNLOAD_URL
-    else:
-        download_url = f"https://github.com/dkuwcreator/devt/releases/download/{version}/devt.exe"
+    download_url = get_download_url(version)
+    logging.info("Download URL: %s", download_url)
 
-    new_executable = install_dir / "devt_new.exe"
-    current_executable = install_dir / "devt.exe"
+    # Determine current executable names based on OS.
+    os_name = platform.system()
+    if os_name == "Windows":
+        current_executable = install_dir / "devt.exe"
+        new_executable = install_dir / "devt_new.exe"
+    else:
+        current_executable = install_dir / "devt"
+        new_executable = install_dir / "devt_new"
 
     if not download_executable(download_url, new_executable):
         logging.error("Download failed. Exiting.")
@@ -91,7 +135,6 @@ def install(
     replace_executable(new_executable, current_executable)
     restart_application(current_executable)
     sys.exit(0)
-
 
 if __name__ == "__main__":
     app()

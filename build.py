@@ -80,7 +80,7 @@ def ensure_pyinstaller() -> None:
 def get_version() -> str:
     """Retrieve the version from the .version file."""
     if VERSION_FILE.exists():
-        version = VERSION_FILE.read_text().strip().lstrip("v")
+        version = VERSION_FILE.read_text().strip()
         logging.info(f"Project version: {version}")
         return version
     logging.warning("No version found in .version file.")
@@ -175,8 +175,30 @@ def build(
         logging.error("Main build process failed.")
         raise e
 
+    # Rename the main executable using the pattern: devt-v0.0.54-<os>[.exe]
+    version = get_version()
+    system = platform.system()
+    if system == "Windows":
+        new_main_name = f"{OUTPUT_NAME}-{version}-windows.exe"
+    elif system == "Linux":
+        new_main_name = f"{OUTPUT_NAME}-{version}-linux"
+    elif system == "Darwin":
+        new_main_name = f"{OUTPUT_NAME}-{version}-macos"
+    else:
+        new_main_name = f"{OUTPUT_NAME}-{version}-{system.lower()}"
+
+    # Determine the original built executable file name
+    orig_main = DIST_DIR / (OUTPUT_NAME + (".exe" if system == "Windows" else ""))
+    new_main = DIST_DIR / new_main_name
+
+    if orig_main.exists():
+        logging.info(f"Renaming {orig_main} to {new_main}")
+        orig_main.rename(new_main)
+    else:
+        logging.error(f"Main executable not found at {orig_main}")
+
     # Build the installer if enabled
-    if skip_installer:
+    if not skip_installer:
         logging.info("Building installer...")
 
         if not Path(UPDATER_SCRIPT).exists():
@@ -200,6 +222,24 @@ def build(
         except subprocess.CalledProcessError as e:
             logging.error("Updater build process failed.")
             raise e
+
+        # Rename the installer executable similarly
+        if system == "Windows":
+            new_inst_name = f"{OUTPUT_NAME}_installer-{version}-windows.exe"
+        elif system == "Linux":
+            new_inst_name = f"{OUTPUT_NAME}_installer-{version}-linux"
+        elif system == "Darwin":
+            new_inst_name = f"{OUTPUT_NAME}_installer-{version}-macos"
+        else:
+            new_inst_name = f"{OUTPUT_NAME}_installer-{version}-{system.lower()}"
+
+        orig_inst = DIST_DIR / (f"{OUTPUT_NAME}_installer" + (".exe" if system == "Windows" else ""))
+        new_inst = DIST_DIR / new_inst_name
+        if orig_inst.exists():
+            logging.info(f"Renaming installer {orig_inst} to {new_inst}")
+            orig_inst.rename(new_inst)
+        else:
+            logging.warning(f"Installer executable not found at {orig_inst}")
 
     # Debug: list files in the distribution directory
     if DIST_DIR.exists():

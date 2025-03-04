@@ -57,15 +57,14 @@ jobs:
           python build.py --ci --clean
         shell: bash
 
-      # Test step for Windows executables
-      - name: Test built executable (Windows)
+      # Test the main executable (the installer test could be added similarly if desired)
+      - name: Test built main executable (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $EXPECTED_VERSION = "${{ github.ref_name }}"
           Write-Host "Expected version is $EXPECTED_VERSION"
-          $rawOutput = & .\dist\devt.exe self version
-          # Join the output in case it's an array of lines
+          $rawOutput = & .\dist\devt-${{ github.ref_name }}-windows.exe self version
           $OUTPUT = $rawOutput -join "`n"
           Write-Host "Output is $OUTPUT"
           if (-not $OUTPUT.Contains($EXPECTED_VERSION)) {
@@ -73,13 +72,18 @@ jobs:
             exit 1
           }
 
-      # Test step for Linux and macOS executables
-      - name: Test built executable (Linux/macOS)
+      - name: Test built main executable (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
           EXPECTED_VERSION=$(cat .version)
           echo "Expected version is $EXPECTED_VERSION"
-          OUTPUT=$(./dist/devt self version)
+          # Determine the expected filename based on OS
+          if [ "$(uname)" = "Darwin" ]; then
+            exe_name="devt-${{ github.ref_name }}-macos"
+          else
+            exe_name="devt-${{ github.ref_name }}-linux"
+          fi
+          OUTPUT=$(./dist/$exe_name self version)
           echo "Output is $OUTPUT"
           if [[ "$OUTPUT" != *"$EXPECTED_VERSION"* ]]; then
             echo "Version mismatch: expected '$EXPECTED_VERSION' to be in output"
@@ -96,7 +100,6 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-
     steps:
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
@@ -125,11 +128,11 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            dist-windows/devt.exe
-            dist-windows/devt_installer.exe
-            dist-linux/devt
-            dist-linux/devt_installer
-            dist-macos/devt
-            dist-macos/devt_installer
+            dist-windows/devt-${{ github.ref_name }}-windows.exe
+            dist-windows/devt_installer-${{ github.ref_name }}-windows.exe
+            dist-linux/devt-${{ github.ref_name }}-linux
+            dist-linux/devt_installer-${{ github.ref_name }}-linux
+            dist-macos/devt-${{ github.ref_name }}-macos
+            dist-macos/devt_installer-${{ github.ref_name }}-macos
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

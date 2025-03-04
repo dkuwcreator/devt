@@ -10,17 +10,13 @@ from packaging import version
 import typer
 import truststore
 import urllib3
+import platform
 
 from devt import __version__
 from devt.config_manager import APP_NAME
 
 # Constants
-GITHUB_LATEST_RELEASE_URL = (
-    "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
-)
-GITHUB_UPDATER_URL = (
-    "https://github.com/dkuwcreator/devt/releases/latest/download/devt_installer.exe"
-)
+GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
 TIMEOUT_CONNECT = 10.0
 TIMEOUT_READ = 10.0
 TIMEOUT_DOWNLOAD_READ = 30.0
@@ -34,17 +30,17 @@ http = urllib3.PoolManager(ssl_context=ctx)
 logger = logging.getLogger(__name__)
 self_app = typer.Typer(help="DevT self management commands")
 
-
-def get_install_dir() -> Path:
-    """Return the installation directory of the executable or script."""
-    install_dir = (
-        Path(sys.executable).parent
-        if getattr(sys, "frozen", False)
-        else Path(__file__).resolve().parent
-    )
-    logger.info("Installation directory: %s", install_dir)
-    return install_dir
-
+def get_os_suffix() -> str:
+    """Return the OS-specific suffix for executables."""
+    os_name = platform.system()
+    if os_name == "Windows":
+        return "windows.exe"
+    elif os_name == "Linux":
+        return "linux"
+    elif os_name == "Darwin":
+        return "macos"
+    else:
+        return os_name.lower()
 
 def get_latest_version() -> str:
     """Retrieve the latest version available online from GitHub."""
@@ -62,15 +58,10 @@ def get_latest_version() -> str:
         logger.error("Error retrieving latest version: %s", err)
         return ""
 
-
 def notify_upgrade_if_available(current_version: str, latest_version: str) -> None:
     """Notify the user if an upgrade is available."""
-    logger.info(
-        "Current version: %s, Latest version: %s", current_version, latest_version
-    )
-    if latest_version and version.parse(latest_version) > version.parse(
-        current_version
-    ):
+    logger.info("Current version: %s, Latest version: %s", current_version, latest_version)
+    if latest_version and version.parse(latest_version) > version.parse(current_version):
         typer.echo(
             f"Upgrade available: {latest_version} (installed: {current_version})\n"
             f"Run '{APP_NAME} self upgrade' to update."
@@ -78,23 +69,18 @@ def notify_upgrade_if_available(current_version: str, latest_version: str) -> No
     else:
         typer.echo("You have the latest version.")
 
-
 def download_file(download_url: str, save_path: Path) -> bool:
     """Download a file from a given URL using urllib3."""
     typer.echo(f"Downloading {save_path.name} from GitHub...")
     logger.info("Starting download from %s", download_url)
-
     try:
         response = http.request(
             "GET",
             download_url,
-            timeout=urllib3.Timeout(
-                connect=TIMEOUT_CONNECT, read=TIMEOUT_DOWNLOAD_READ
-            ),
+            timeout=urllib3.Timeout(connect=TIMEOUT_CONNECT, read=TIMEOUT_DOWNLOAD_READ),
         )
         if response.status != 200:
             raise Exception(f"HTTP Error {response.status}")
-
         save_path.write_bytes(response.data)
         logger.info("Downloaded file saved to %s", save_path)
         return True
@@ -103,6 +89,37 @@ def download_file(download_url: str, save_path: Path) -> bool:
         typer.echo(f"Error downloading {save_path.name}: {err}")
         return False
 
+def get_updater_download_url(version_str: str = "latest") -> str:
+    """
+    Build the updater download URL dynamically.
+    If version_str is 'latest', the function queries GitHub for the latest tag.
+    The URL format is:
+      https://github.com/dkuwcreator/devt/releases/download/<version>/devt_installer-<version>-<os_suffix>
+    """
+    if version_str == "latest":
+        version_str = get_latest_version()
+    os_suffix = get_os_suffix()
+    url = f"https://github.com/dkuwcreator/devt/releases/download/{version_str}/devt_installer-{version_str}-{os_suffix}"
+    logger.info("Updater download URL: %s", url)
+    return url
+
+def get_installer_filename() -> str:
+    """Determine the local filename for the installer executable based on platform."""
+    os_name = platform.system()
+    if os_name == "Windows":
+        return f"{APP_NAME}_installer.exe"
+    else:
+        return f"{APP_NAME}_installer"
+
+def get_install_dir() -> Path:
+    """Return the installation directory of the executable or script."""
+    install_dir = (
+        Path(sys.executable).parent
+        if getattr(sys, "frozen", False)
+        else Path(__file__).resolve().parent
+    )
+    logger.info("Installation directory: %s", install_dir)
+    return install_dir
 
 def check_updates() -> None:
     """Check for updates and notify the user."""
@@ -117,23 +134,20 @@ def check_updates() -> None:
     else:
         typer.echo("Could not determine the latest version.")
 
-
 @self_app.command("version")
 def self_version() -> None:
     """Display the current DevT version and perform an update check."""
-    typer.echo(f"DevT v{__version__}")
+    typer.echo(f"DevT {__version__}")
     logger.info("Version information requested.")
     check_updates()
-
 
 @self_app.command("show")
 def self_show() -> None:
     """Display the installation directory and DevT version, then perform an update check."""
     install_dir = get_install_dir()
-    typer.echo(f"DevT version: {__version__}")
+    typer.echo(f"DevT {__version__}")
     typer.echo(f"Installation directory: {install_dir}")
     check_updates()
-
 
 @self_app.command("upgrade")
 def self_upgrade() -> None:
@@ -150,10 +164,14 @@ def self_upgrade() -> None:
     install_dir.mkdir(exist_ok=True)
     logger.info("Ensured installation directory exists: %s", install_dir)
 
-    installer_exe_path = install_dir / f"{APP_NAME}_installer.exe"
+    # Build the updater download URL dynamically.
+    download_url = get_updater_download_url("latest")
 
-    # Download the installer
-    if not download_file(GITHUB_UPDATER_URL, installer_exe_path):
+    installer_exe_filename = get_installer_filename()
+    installer_exe_path = install_dir / installer_exe_filename
+
+    # Download the installer.
+    if not download_file(download_url, installer_exe_path):
         logger.error("Updater download failed. Aborting upgrade.")
         typer.echo("Updater download failed. Aborting upgrade.")
         return
