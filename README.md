@@ -2,6 +2,16 @@
 
 ### Sharing Development Tools Made Easy
 
+install devt on your system by running the following command:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/dkuwcreator/devt/main/install.sh | bash
+```
+or 
+```powershell
+iwr -useb https://raw.githubusercontent.com/dkuwcreator/devt/main/install.ps1 | iex
+```
+
 ## What is DevT?
 
 **DevT** is a command-line interface (CLI) tool that acts as a package manager for development tools, simplifying the installation, configuration, and management of these tools across teams and organizations. It automates tasks such as:
