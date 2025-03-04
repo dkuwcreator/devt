@@ -5,16 +5,51 @@ param (
 )
 
 # Constants
-$OUTPUT_NAME         = "devt"
-$INSTALLER_NAME        = "devt_installer"
-$DEFAULT_INSTALL_DIR = Join-Path $env:USERPROFILE $OUTPUT_NAME  # Logical install location
-$DOWNLOAD_URL        = "https://github.com/dkuwcreator/devt/releases/latest/download/devt.exe"
-$INSTALLER_URL         = "https://github.com/dkuwcreator/devt/releases/latest/download/devt_installer.exe"
+$OUTPUT_NAME          = "devt"
+$INSTALLER_NAME       = "devt_installer"
+$DEFAULT_INSTALL_DIR  = Join-Path $env:USERPROFILE $OUTPUT_NAME  # Logical install location
 
-# Determine installation directory
-$INSTALL_DIR      = if ($InstallPath) { $InstallPath } else { $DEFAULT_INSTALL_DIR }
-$EXECUTABLE_PATH  = Join-Path $INSTALL_DIR "$OUTPUT_NAME.exe"
-$INSTALLER_PATH     = Join-Path $INSTALL_DIR "$INSTALLER_NAME.exe"
+# Function to get the latest release version from GitHub
+function Get-LatestVersion {
+    $apiUrl = "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
+    try {
+        # GitHub API requires a User-Agent header; Use -UseBasicParsing for compatibility
+        $ReleaseInfo = Invoke-RestMethod -Uri $apiUrl -UseBasicParsing -Headers @{ "User-Agent" = "PowerShell" }
+        if ($ReleaseInfo -and $ReleaseInfo.tag_name) {
+            Write-Host "Latest version retrieved from GitHub: $($ReleaseInfo.tag_name)"
+            return $ReleaseInfo.tag_name
+        }
+        else {
+            Write-Host "Failed to parse latest version from API response."
+            return "latest"
+        }
+    }
+    catch {
+        Write-Host "Error retrieving latest version: $_"
+        return "latest"
+    }
+}
+
+# Determine the OS-specific suffix (for Windows, we use "windows.exe")
+function Get-OSSuffix {
+    # This script is intended for Windows installation.
+    return "windows.exe"
+}
+
+$osSuffix = Get-OSSuffix
+
+# Get the latest version from GitHub
+$LatestVersion = Get-LatestVersion
+
+# Build download URLs using the new naming convention.
+# Example: https://github.com/dkuwcreator/devt/releases/download/v0.0.54/devt-v0.0.54-windows.exe
+$DOWNLOAD_URL  = "https://github.com/dkuwcreator/devt/releases/download/$LatestVersion/$OUTPUT_NAME-$LatestVersion-$osSuffix"
+$INSTALLER_URL = "https://github.com/dkuwcreator/devt/releases/download/$LatestVersion/$INSTALLER_NAME-$LatestVersion-$osSuffix"
+
+# Determine installation directory and target file paths
+$INSTALL_DIR     = if ($InstallPath) { $InstallPath } else { $DEFAULT_INSTALL_DIR }
+$EXECUTABLE_PATH = Join-Path $INSTALL_DIR "$OUTPUT_NAME.exe"        # We install main executable as devt.exe
+$INSTALLER_PATH  = Join-Path $INSTALL_DIR "$INSTALLER_NAME.exe"     # And installer as devt_installer.exe
 
 # Function to update the User PATH environment variable
 function Update-UserPath {
