@@ -57,10 +57,6 @@ jobs:
           python build.py --ci --clean
         shell: bash
 
-      - name: List dist directory contents
-        run: ls dist
-        shell: bash
-
       # Test step for Windows executables
       - name: Test built executable (Windows)
         if: runner.os == 'Windows'
