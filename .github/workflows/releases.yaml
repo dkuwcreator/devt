@@ -27,25 +27,35 @@ jobs:
       - name: Write Version File
         run: echo "${{ github.ref_name }}" > .version
 
-      - name: Run build script (Windows)
+      - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
-        shell: cmd
         run: |
           python -m venv .venv
           .venv\Scripts\activate
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python build.py --clean
+        shell: powershell
 
-      - name: Run build script (Linux/macOS)
+      - name: Install dependencies (Linux/macOS)
         if: runner.os != 'Windows'
-        shell: bash
         run: |
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python build.py --clean
+        shell: bash
+
+      - name: Run build script (Windows)
+        if: runner.os == 'Windows'
+        run: .venv\Scripts\python.exe build.py --ci --clean
+        shell: cmd
+
+      - name: Run build script (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          python build.py --ci --clean
+        shell: bash
 
       - name: List dist directory contents
         run: ls dist
