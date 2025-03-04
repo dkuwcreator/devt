@@ -48,7 +48,7 @@ jobs:
       - name: Run build script (Windows)
         if: runner.os == 'Windows'
         run: .venv\Scripts\python.exe build.py --ci --clean
-        shell: cmd
+        shell: pwsh
 
       - name: Run build script (Linux/macOS)
         if: runner.os != 'Windows'
@@ -60,16 +60,16 @@ jobs:
       # Test step for Windows executables
       - name: Test built executable (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          REM Read expected version from .version file
-          for /f "delims=" %%i in (".version") do set "EXPECTED_VERSION=%%i"
-          echo Expected version is %EXPECTED_VERSION%
-          REM Run the built executable and capture output
-          for /f "delims=" %%i in ('.\\dist\\devt.exe self version') do set "OUTPUT=%%i"
-          echo Output is %OUTPUT%
-          REM Check if the output contains the expected version
-          echo %OUTPUT% | findstr /C:"%EXPECTED_VERSION%"
-        shell: cmd
+          $EXPECTED_VERSION = "${{ github.ref_name }}"
+          Write-Host "Expected version is $EXPECTED_VERSION"
+          $OUTPUT = & .\dist\devt.exe self version
+          Write-Host "Output is $OUTPUT"
+          if (-not $OUTPUT.Contains($EXPECTED_VERSION)) {
+            Write-Error "Version mismatch: expected '$EXPECTED_VERSION' to be in output"
+            exit 1
+          }
 
       # Test step for Linux and macOS executables
       - name: Test built executable (Linux/macOS)
