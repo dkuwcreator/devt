@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 def run_script(
     command: str = typer.Argument(..., help="Unique tool command"),
     script_name: str = typer.Argument(..., help="Name of the script to execute"),
-    extra_args: Annotated[Optional[List[str]], typer.Argument()] = None,
+    extra_args: Annotated[Optional[List[str]], typer.Argument(help="Extra arguments")] = None,
     scope: str = typer.Option(
         "both",
         "--scope",

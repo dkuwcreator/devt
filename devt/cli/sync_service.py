@@ -16,14 +16,14 @@ class SyncManager:
 
     @classmethod
     def from_context(cls, ctx: typer.Context) -> "SyncManager":
-        registry, pkg_manager, repo_manager, _, _ = get_managers(ctx)
+        registry, pkg_manager, registry_dir, _ = get_managers(ctx)
         tool_service = ToolService.from_context(ctx)
-        return cls(registry, repo_manager, pkg_manager, tool_service)
+        return cls(registry_dir, registry, pkg_manager, tool_service)
 
-    def __init__(self, registry, repo_manager, pkg_manager, tool_service):
-        self.registry: RegistryManager = registry
-        self.repo_manager: RepoManager = repo_manager
-        self.pkg_manager: PackageManager = pkg_manager
+    def __init__(self, registry_dir, registry, pkg_manager, tool_service):
+        self.registry = RegistryManager(registry_dir)
+        self.repo_manager = RepoManager(registry_dir)
+        self.pkg_manager = PackageManager(registry_dir)
         self.tool_service: ToolService = tool_service
         self.last_sync_time = 0
 

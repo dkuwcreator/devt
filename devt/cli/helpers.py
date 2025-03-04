@@ -19,7 +19,6 @@ from devt.config_manager import (
 )
 from devt.registry.manager import RegistryManager
 from devt.package.manager import PackageManager
-from devt.repo_manager import RepoManager
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +69,6 @@ def setup_app_context(
     # Create unified managers.
     registry: RegistryManager = RegistryManager(registry_dir)
     pkg_manager: PackageManager = PackageManager(registry_dir)
-    repo_manager: RepoManager = RepoManager(registry_dir)
 
     # Store managers and configuration in the Typer context.
     ctx.obj = {
@@ -79,7 +77,6 @@ def setup_app_context(
         "registry_dir": registry_dir,
         "registry": registry,
         "pkg_manager": pkg_manager,
-        "repo_manager": repo_manager,
     }
     logger.info(
         "App context set up with scope: %s, registry_dir: %s",
@@ -90,19 +87,18 @@ def setup_app_context(
 
 def get_managers(
     ctx: typer.Context,
-) -> Tuple[RegistryManager, PackageManager, RepoManager, Path, str]:
+) -> Tuple[RegistryManager, PackageManager, Path, str]:
     """
     Retrieves the unified managers and configuration from the Typer context.
 
     Returns:
-        A tuple of (registry, pkg_manager, repo_manager, registry_dir, scope).
+        A tuple of (registry, pkg_manager, registry_dir, scope).
     """
     scope: str = ctx.obj.get("scope")
     registry_dir: Path = ctx.obj.get("registry_dir")
     registry: RegistryManager = ctx.obj.get("registry")
     pkg_manager: PackageManager = ctx.obj.get("pkg_manager")
-    repo_manager: RepoManager = ctx.obj.get("repo_manager")
-    return registry, pkg_manager, repo_manager, registry_dir, scope
+    return registry, pkg_manager, registry_dir, scope
 
 
 def get_scopes_to_query(scope: Optional[str] = None) -> Dict[str, RegistryManager]:
@@ -147,5 +143,4 @@ def get_package_from_registries(
         pkg = registry.retrieve_package(command)
         if pkg:
             return pkg, sc
-    return None, None
-
+    return None, scope

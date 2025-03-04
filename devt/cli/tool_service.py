@@ -12,6 +12,7 @@ from devt.cli.helpers import (
 from devt.config_manager import USER_REGISTRY_DIR, WORKSPACE_REGISTRY_DIR
 from devt.registry.manager import RegistryManager
 from devt.package.manager import PackageManager
+from devt.repo_manager import RepoManager
 
 logger = logging.getLogger(__name__)
 
@@ -23,20 +24,17 @@ class ToolService:
 
     @classmethod
     def from_context(cls, ctx: typer.Context) -> "ToolService":
-        registry, pkg_manager, repo_manager, registry_dir, scope = get_managers(ctx)
-        return cls(registry, pkg_manager, repo_manager, registry_dir, scope)
+        registry, pkg_manager, registry_dir, scope = get_managers(ctx)
+        return cls(registry_dir, scope)
 
     def __init__(
         self,
-        registry: RegistryManager,
-        pkg_manager: PackageManager,
-        repo_manager,
         registry_dir: Path,
         scope: str,
     ) -> None:
-        self.registry = registry
-        self.pkg_manager = pkg_manager
-        self.repo_manager = repo_manager
+        self.registry = RegistryManager(registry_dir)
+        self.repo_manager = RepoManager(registry_dir)
+        self.pkg_manager = PackageManager(registry_dir)
         self.registry_dir = registry_dir
         self.scope = scope
 
@@ -51,9 +49,14 @@ class ToolService:
             if self.registry.retrieve_package(pkg.command):
                 if force:
                     self.registry.unregister_package(pkg.command)
-                    logger.debug("Force option enabled: Overwriting package '%s'.", pkg.command)
+                    logger.debug(
+                        "Force option enabled: Overwriting package '%s'.", pkg.command
+                    )
                 else:
-                    logger.info("Package '%s' already exists; skipping registration.", pkg.command)
+                    logger.info(
+                        "Package '%s' already exists; skipping registration.",
+                        pkg.command,
+                    )
                     continue
             self.registry.register_package(pkg.to_dict())
             logger.info("Registered package '%s' in group '%s'.", pkg.command, group)
@@ -65,13 +68,17 @@ class ToolService:
             if self.registry.retrieve_package(pkg.command):
                 if force:
                     self.registry.unregister_package(pkg.command)
-                    logger.debug("Force option enabled: Overwriting package '%s'.", pkg.command)
+                    logger.debug(
+                        "Force option enabled: Overwriting package '%s'.", pkg.command
+                    )
                 else:
-                    logger.info("Package '%s' already exists; skipping registration.", pkg.command)
+                    logger.info(
+                        "Package '%s' already exists; skipping registration.",
+                        pkg.command,
+                    )
                     continue
             self.registry.register_package(pkg.to_dict())
             logger.info("Registered package '%s' in group '%s'.", pkg.command, group)
-
 
     def update_tool(self, command: str) -> None:
         """Updates a single tool package."""
@@ -80,7 +87,9 @@ class ToolService:
             logger.warning("Tool '%s' does not exist; skipping update.", command)
             return
 
-        updated_pkg = self.pkg_manager.update_package(Path(existing_pkg["location"]), group=existing_pkg["group"])
+        updated_pkg = self.pkg_manager.update_package(
+            Path(existing_pkg["location"]), group=existing_pkg["group"]
+        )
         if updated_pkg:
             self.registry.update_package(updated_pkg.to_dict())
             logger.info("Updated tool '%s'.", command)
@@ -102,7 +111,7 @@ class ToolService:
         pkg_info = self.registry.package_registry.get_package(command)
         if not pkg_info:
             raise ValueError(f"Tool '{command}' not found in {self.scope} registry.")
-        
+
         output_path = (Path.cwd() / output).resolve()
         self.pkg_manager.export_package(Path(pkg_info["location"]), output_path)
         logger.info("Exported tool '%s' to %s.", command, output_path)
@@ -143,7 +152,12 @@ class ToolService:
         for sc, reg in scopes.items():
             tools = reg.package_registry.list_packages(**filters)
             results[sc] = tools
-            logger.info("Found %d tools in %s registry with filters %s.", len(tools), sc, filters)
+            logger.info(
+                "Found %d tools in %s registry with filters %s.",
+                len(tools),
+                sc,
+                filters,
+            )
         return results
 
     def get_tool_info(self, command: str, scope: Optional[str]) -> Optional[dict]:
@@ -163,7 +177,9 @@ class ToolService:
         sync_counts = {}
         scopes = get_scopes_to_query(self.scope)
         for sc, reg in scopes.items():
-            pkg_manager = PackageManager(USER_REGISTRY_DIR if sc == "user" else WORKSPACE_REGISTRY_DIR)
+            pkg_manager = PackageManager(
+                USER_REGISTRY_DIR if sc == "user" else WORKSPACE_REGISTRY_DIR
+            )
             count = 0
             active_packages = reg.package_registry.list_packages(active=True)
             for pkg in active_packages:
@@ -172,7 +188,9 @@ class ToolService:
                     new_pkg = pkg_manager.update_package(pkg_location, pkg["group"])
                     reg.register_package(new_pkg.to_dict(), force=True)
                     count += 1
-                    logger.info("Synced tool '%s' in %s registry.", pkg.get("command"), sc)
+                    logger.info(
+                        "Synced tool '%s' in %s registry.", pkg.get("command"), sc
+                    )
                 except Exception as e:
                     logger.exception("Error syncing tool at %s: %s", pkg_location, e)
                     continue

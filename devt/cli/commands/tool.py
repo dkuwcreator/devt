@@ -107,7 +107,7 @@ def tool_list(
     """
     logger.info("Listing tools with filters: command=%s, name=%s, description=%s, location=%s, group=%s, active=%s",
                 command, name, description, location, group, active)
-    registry, _, _, _, _ = get_managers(ctx)
+    registry, _, _, _ = get_managers(ctx)
     tools = registry.package_registry.list_packages(
         command=command,
         name=name,

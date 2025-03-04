@@ -1,15 +1,14 @@
 import functools
 import logging
 import shutil
-from pathlib import Path
 from typing import Callable, TypeVar, Any, Optional
 from typing_extensions import Annotated
 
 import typer
 
-from devt.cli.helpers import get_managers
 from devt.utils import print_table
 from devt.registry.manager import RegistryManager
+from devt.repo_manager import RepoManager
 from devt.cli.sync_service import SyncManager
 from devt.cli.tool_service import ToolService
 
@@ -51,8 +50,8 @@ def main(ctx: typer.Context) -> None:
     """
     check_git_and_exit()
     ctx.obj = ctx.obj or {}
-    registry, pkg_manager, repo_manager, _, _ = get_managers(ctx)
-    ctx.obj["repo_manager"] = repo_manager
+    registry_dir = ctx.obj.get("registry_dir")
+    ctx.obj["repo_manager"] = RepoManager(registry_dir)
     ctx.obj["tool_manager"] = ToolService.from_context(ctx)
     ctx.obj["sync_manager"] = SyncManager.from_context(ctx)
 
@@ -78,7 +77,9 @@ def repo_add(
     """
     Adds a repository containing tool packages to the registry.
     """
-    registry, pkg_manager, repo_manager, _, _ = get_managers(ctx)
+    registry_dir = ctx.obj.get("registry_dir")
+    registry = RegistryManager(registry_dir)
+    repo_manager = RepoManager(registry_dir)
     repo_url = source
     logger.info("Adding repository: %s", repo_url)
 
@@ -116,7 +117,9 @@ def repo_remove(
     """
     Removes a repository and all its associated tools.
     """
-    registry, _, repo_manager, _, _ = get_managers(ctx)
+    registry_dir = ctx.obj.get("registry_dir")
+    registry = RegistryManager(registry_dir)
+    repo_manager = RepoManager(registry_dir)
     repo = registry.repository_registry.get_repo_by_name(name=repo_name)
     
     if not repo:
@@ -140,7 +143,7 @@ def repo_remove(
 @handle_errors
 def repo_sync(
     ctx: typer.Context,
-    repo_name: str = typer.Argument(..., help="Name of the repository to remove."),
+    repo_name: Annotated[Optional[str], typer.Argument(help="Name of the repository to sync")] = None,
     force: bool = typer.Option(
         False, "--force", help="Force overwrite if repository already exists."
     ),
@@ -148,11 +151,14 @@ def repo_sync(
     """
     Synchronize repositories (either all or filtered by name).
     """
-    registry, pkg_manager, repo_manager, _, _ = get_managers(ctx)
+    registry_dir = ctx.obj.get("registry_dir")
+    registry = RegistryManager(registry_dir)
     sync_manager = SyncManager.from_context(ctx)
     repos = registry.repository_registry.list_repositories(name=repo_name)
+    
     if not repos:
-        raise typer.Exit(code=1)
+        logger.info("No repositories found to sync.")
+        return
 
     for repo in repos:
         sync_manager.sync_single_repository(repo, force)
@@ -179,7 +185,7 @@ def repo_list(
         url=url, name=name, branch=branch, location=location, auto_sync=auto_sync
     )
     if repos:
-        headers = ["Name", "URL", "Branch", "Location", "Auto Sync"]
+        headers = ["Name", "URL", "Branch", "Location", "Auto Sync", "Last Update"]
         rows = [
             [
                 repo.get("name", ""),
@@ -187,6 +193,7 @@ def repo_list(
                 repo.get("branch", ""),
                 repo.get("location", ""),
                 str(repo.get("auto_sync", "")),
+                repo.get("last_update", ""),
             ]
             for repo in repos
         ]

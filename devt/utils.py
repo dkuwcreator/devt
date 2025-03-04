@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from jsonschema import ValidationError, validate
 import typer
 import yaml
+# from InquirerPy import inquirer
 
 logger = logging.getLogger(__name__)
 
@@ -226,19 +227,55 @@ def validate_manifest(manifest: dict) -> bool:
         return False
 
 
-def print_table(headers: List[str], rows: List[List[str]]) -> None:
+def print_table(headers: List[str], rows: List[List[str]], max_field_length: int = 30) -> List[str]:
     logger.info("Printing table with headers: %s", headers)
+
+    def truncate_field(text: str, width: int) -> str:
+        if len(text) > width:
+            return text[: max(width - 3, 0)] + "..." if width > 3 else text[:width]
+        return text
+
+    # Calculate column widths but limit them to max_field_length
     col_widths = [
-        max(len(headers[i]), max((len(row[i]) for row in rows), default=0))
+        min(max(len(headers[i]), max((len(row[i]) for row in rows), default=0)), max_field_length)
         for i in range(len(headers))
     ]
+    
+    # Build the formatted header line with truncation if needed
     separator = "+" + "+".join("-" * (w + 2) for w in col_widths) + "+"
-    header_line = "|" + "|".join(f" {headers[i].ljust(col_widths[i])} " for i in range(len(headers))) + "|"
+    header_line = "|" + "|".join(f" {truncate_field(headers[i], col_widths[i]).ljust(col_widths[i])} " for i in range(len(headers))) + "|"
+    
     typer.echo(separator)
     typer.echo(header_line)
     typer.echo(separator)
+    
     for row in rows:
-        row_line = "|" + "|".join(f" {row[i].ljust(col_widths[i])} " for i in range(len(row))) + "|"
+        row_line = "|" + "|".join(f" {truncate_field(row[i], col_widths[i]).ljust(col_widths[i])} " for i in range(len(row))) + "|"
         typer.echo(row_line)
+    
     typer.echo(separator)
     logger.info("Table printed successfully.")
+    
+    # Use select_row to let the user choose a row after printing the table
+    # selected = select_row(headers, rows)
+    # logger.info("Row selected from print_table: %s", selected)
+    # return selected
+
+
+# def select_row(headers: List[str], rows: List[List[str]]) -> List[str]:
+#     """
+#     Presents a searchable list of rows using InquirerPy.
+#     Each row is displayed as a string combining its columns.
+#     When a row is selected, the original row list is returned.
+#     """
+#     # Build choices: Each choice shows a row as a joined string, and its value is the row list.
+#     choices = [{"name": " | ".join(row), "value": row} for row in rows]
+
+#     # Use fuzzy search to allow searching for specific rows.
+#     selected_row = inquirer.fuzzy(
+#         message="Search and select a row:",
+#         choices=choices,
+#     ).execute()
+
+#     logger.info("Selected row: %s", selected_row)
+#     return selected_row
