@@ -64,7 +64,9 @@ jobs:
         run: |
           $EXPECTED_VERSION = "${{ github.ref_name }}"
           Write-Host "Expected version is $EXPECTED_VERSION"
-          $OUTPUT = & .\dist\devt.exe self version
+          $rawOutput = & .\dist\devt.exe self version
+          # Join the output in case it's an array of lines
+          $OUTPUT = $rawOutput -join "`n"
           Write-Host "Output is $OUTPUT"
           if (-not $OUTPUT.Contains($EXPECTED_VERSION)) {
             Write-Error "Version mismatch: expected '$EXPECTED_VERSION' to be in output"
