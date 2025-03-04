@@ -29,14 +29,12 @@ jobs:
 
       - name: Run build script (Windows)
         if: runner.os == 'Windows'
-        run: .venv\Scripts\python.exe build.py --clean
+        run: python build.py --clean
         shell: cmd
 
       - name: Run build script (Linux/macOS)
         if: runner.os != 'Windows'
-        run: |
-          source .venv/bin/activate
-          python build.py --clean
+        run: python build.py --clean
         shell: bash
 
       - name: List dist directory contents
