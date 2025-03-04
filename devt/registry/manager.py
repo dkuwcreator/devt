@@ -1,412 +1,242 @@
 """
-devt/registry_manager.py
+devt/registry/manager.py
 
 Manages database operations for the DevT registry, including scripts, packages, and repositories.
 """
 
+import logging
 from contextlib import contextmanager
 from datetime import datetime
-import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Generator
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy import create_engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker
 
-from devt.package.builder import ToolPackage
-from devt.registry.models import Base, ScriptModel, PackageModel, RepositoryModel
+from devt.registry.models import Base, Group, Package
 
 logger = logging.getLogger(__name__)
 
 
-def handle_errors(func):
-    """Decorator to log exceptions in functions."""
-    import functools
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            logger.exception("Error in %s: %s", func.__name__, e)
-            raise
-    return wrapper
-
-
-def create_db_engine(registry_path: Path) -> Any:
-    """
-    Creates and initializes the database engine.
-    """
-    registry_path.mkdir(parents=True, exist_ok=True)
-    db_file = (registry_path / "registry.db").resolve()
-    db_uri = f"sqlite:///{db_file}"
-    engine = create_engine(db_uri, echo=False, future=True)
-    Base.metadata.create_all(engine)
-    logger.debug(f"Registry initialized with database at {db_file}")
-    return engine
-
-
-@contextmanager
-def session_scope(Session) -> Generator[Any, None, None]:
-    """
-    Provides a transactional scope for a series of operations.
-    """
-    session = Session()
-    try:
-        yield session
-        session.commit()
-    except Exception as exc:
-        session.rollback()
-        logger.exception("Session rollback due to exception: %s", exc)
-        raise exc
-    finally:
-        session.close()
-
-
-class BaseRegistry:
-    """
-    Base class for registry management.
-    """
-    def __init__(self, engine: Any) -> None:
-        self.engine = engine
-        self.Session = sessionmaker(bind=self.engine, future=True)
-
-
-class ScriptRegistry(BaseRegistry):
-    """
-    Manages all script-related operations.
-    """
-    def _unpack_script_data(self, script: dict) -> dict:
-        if "args" not in script:
-            raise ValueError("Missing required key 'args' in script configuration.")
-        script.setdefault("cwd", ".")
-        return {
-            "args": script["args"],
-            "cwd": str(script["cwd"]),
-            "env": script.get("env"),
-            "shell": script.get("shell"),
-            "kwargs": script.get("kwargs"),
-        }
-
-    def _pack_script_data(self, script: ScriptModel) -> dict:
-        return {
-            "command": script.command,
-            "script_name": script.script_name,
-            "args": script.args,
-            "cwd": str(Path(script.cwd)),
-            "env": script.env,
-            "shell": script.shell,
-            "kwargs": script.kwargs,
-        }
-
-    @handle_errors
-    def add_script(self, command: str, script_name: str, script: dict) -> None:
-        script_data = self._unpack_script_data(script)
-        with session_scope(self.Session) as session:
-            session.add(ScriptModel(
-                command=command,
-                script_name=script_name,
-                **script_data
-            ))
-        logger.debug("Script '%s' added for command '%s'.", script_name, command)
-
-    @handle_errors
-    def get_script(self, command: str, script_name: str) -> Optional[dict]:
-        with self.Session() as session:
-            result = session.query(ScriptModel).filter_by(
-                command=command, script_name=script_name
-            ).first()
-            return self._pack_script_data(result) if result else None
-
-    @handle_errors
-    def list_scripts(self, command: str) -> List[dict]:
-        with self.Session() as session:
-            results = session.query(ScriptModel).filter_by(command=command).all()
-            return [self._pack_script_data(s) for s in results]
-
-    @handle_errors
-    def update_script(self, command: str, script_name: str, script: dict) -> None:
-        script_data = self._unpack_script_data(script)
-        with session_scope(self.Session) as session:
-            instance = session.query(ScriptModel).filter_by(
-                command=command, script_name=script_name
-            ).first()
-            if not instance:
-                raise ValueError("Script not found")
-            instance.args = script_data["args"]
-            instance.cwd = script_data["cwd"]
-            instance.env = script_data["env"]
-            instance.shell = script_data["shell"]
-            instance.kwargs = script_data["kwargs"]
-
-    @handle_errors
-    def delete_script(self, command: str, script_name: str) -> None:
-        with session_scope(self.Session) as session:
-            instance = session.query(ScriptModel).filter_by(
-                command=command, script_name=script_name
-            ).first()
-            if instance:
-                session.delete(instance)
-                logger.debug("Deleted script '%s' for command '%s'.", script_name, command)
-
-
-class PackageRegistry(BaseRegistry):
-    """
-    Manages all package-related operations.
-    """
-    def _pack_package_data(self, package: PackageModel) -> Dict[str, Any]:
-        return {
-            "command": package.command,
-            "name": package.name,
-            "description": package.description,
-            "location": package.location,
-            "dependencies": package.dependencies if package.dependencies is not None else {},
-            "group": package.group,
-            "active": package.active,
-            "install_date": package.install_date.isoformat(),
-            "last_update": package.last_update.isoformat(),
-        }
-
-    @handle_errors
-    def add_package(self, **kwargs) -> None:
-        now_dt = datetime.now()
-        kwargs["install_date"] = now_dt
-        kwargs["last_update"] = now_dt
-
-        with session_scope(self.Session) as session:
-            session.add(PackageModel(**kwargs))
-        logger.debug("Package '%s' added.", kwargs.get("command"))
-
-    @handle_errors
-    def get_package(self, command: str) -> Optional[Dict[str, Any]]:
-        with self.Session() as session:
-            pkg = session.query(PackageModel).filter_by(command=command).first()
-        return self._pack_package_data(pkg) if pkg else None
-
-    @handle_errors
-    def list_packages(
-        self,
-        command: Optional[str] = None,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        location: Optional[str] = None,
-        group: Optional[str] = None,
-        active: Optional[bool] = None,
-    ) -> List[Dict[str, Any]]:
-        logger.info("Listing packages with filters.")
-        with session_scope(self.Session) as session:
-            query = session.query(PackageModel)
-            if command:
-                query = query.filter_by(command=command)
-            if name:
-                query = query.filter(PackageModel.name.like(f"%{name}%"))
-            if description:
-                query = query.filter(PackageModel.description.like(f"%{description}%"))
-            if location:
-                query = query.filter(PackageModel.location.like(f"%{location}%"))
-            if group:
-                query = query.filter_by(group=group)
-            if active is not None:
-                query = query.filter_by(active=active)
-            packages = query.all()
-            return [self._pack_package_data(pkg) for pkg in packages]
-
-    @handle_errors
-    def update_package(self, command: str, **kwargs: Any) -> None:
-        with session_scope(self.Session) as session:
-            pkg = session.query(PackageModel).filter_by(command=command).first()
-            if not pkg:
-                raise ValueError("Package not found")
-            
-            valid_columns = {col.name for col in PackageModel.__table__.columns}
-            for key, value in kwargs.items():
-                if key == "install_date":
-                    continue
-                if key in valid_columns:
-                    setattr(pkg, key, value if key != "dependencies" else (value if value else None))
-                else:
-                    logger.warning("Key '%s' is not a recognized package field.", key)
-            pkg.last_update = datetime.now()
-
-    @handle_errors
-    def delete_package(self, command: str) -> None:
-        with session_scope(self.Session) as session:
-            pkg = session.query(PackageModel).filter_by(command=command).first()
-            if pkg:
-                session.delete(pkg)
-                logger.debug("Package '%s' deleted.", command)
-
-    @handle_errors
-    def deactivate_package(self, command: str) -> None:
-        logger.info("Deactivating package '%s'.", command)
-        with session_scope(self.Session) as session:
-            pkg = session.query(PackageModel).filter_by(command=command).first()
-            if not pkg:
-                raise ValueError("Package not found")
-            pkg.active = False
-
-    @handle_errors
-    def activate_package(self, command: str) -> None:
-        with session_scope(self.Session) as session:
-            pkg = session.query(PackageModel).filter_by(command=command).first()
-            if not pkg:
-                raise ValueError("Package not found")
-            pkg.active = True
-
-    @handle_errors
-    def get_package_location(self, command: str) -> Optional[str]:
-        with session_scope(self.Session) as session:
-            pkg = session.query(PackageModel).filter_by(command=command).first()
-            return pkg.location if pkg else None
-
-
-class RepositoryRegistry(BaseRegistry):
-    """
-    Manages all repository-related operations.
-    """
-    def _pack_repo_data(self, repo: RepositoryModel) -> Dict[str, Any]:
-        return {
-            "url": repo.url,
-            "name": repo.name,
-            "branch": repo.branch,
-            "location": repo.location,
-            "auto_sync": repo.auto_sync,
-            "install_date": repo.install_date.isoformat(),
-            "last_update": repo.last_update.isoformat(),
-        }
-
-    @handle_errors
-    def add_repository(self, **kwargs) -> None:
-        now_dt = datetime.now()
-        kwargs.setdefault("install_date", now_dt)
-        kwargs.setdefault("last_update", now_dt)
-
-        with session_scope(self.Session) as session:
-            session.add(RepositoryModel(**kwargs))
-        logger.debug("Repository '%s' added.", kwargs.get("url"))
-
-    @handle_errors
-    def get_repository(self, url: str) -> Optional[Dict[str, Any]]:
-        with session_scope(self.Session) as session:
-            repo = session.query(RepositoryModel).filter_by(url=url).first()
-            return self._pack_repo_data(repo) if repo else None
-
-    @handle_errors
-    def list_repositories(
-        self,
-        url: Optional[str] = None,
-        name: Optional[str] = None,
-        branch: Optional[str] = None,
-        location: Optional[str] = None,
-        auto_sync: Optional[bool] = None,
-    ) -> List[Dict[str, Any]]:
-        with session_scope(self.Session) as session:
-            query = session.query(RepositoryModel)
-            if url:
-                query = query.filter_by(url=url)
-            if name:
-                query = query.filter(RepositoryModel.name.like(f"%{name}%"))
-            if branch:
-                query = query.filter(RepositoryModel.branch.like(f"%{branch}%"))
-            if location:
-                query = query.filter(RepositoryModel.location.like(f"%{location}%"))
-            if auto_sync is not None:
-                query = query.filter_by(auto_sync=auto_sync)
-            repos = query.all()
-            return [self._pack_repo_data(repo) for repo in repos]
-
-    @handle_errors
-    def update_repository(self, url: str, **kwargs: Any) -> None:
-        with session_scope(self.Session) as session:
-            repo = session.query(RepositoryModel).filter_by(url=url).first()
-            if not repo:
-                raise ValueError("Repository not found")
-            valid_columns = {col.name for col in RepositoryModel.__table__.columns}
-            for key, value in kwargs.items():
-                if key in valid_columns:
-                    setattr(repo, key, value)
-                else:
-                    logger.warning("Key '%s' is not a recognized repository field.", key)
-            repo.last_update = datetime.now()
-
-    @handle_errors
-    def delete_repository(self, url: str) -> None:
-        with session_scope(self.Session) as session:
-            repo = session.query(RepositoryModel).filter_by(url=url).first()
-            if repo:
-                session.delete(repo)
-
-    @handle_errors
-    def set_auto_sync(self, url: str, auto_sync: bool) -> None:
-        with session_scope(self.Session) as session:
-            repo = session.query(RepositoryModel).filter_by(url=url).first()
-            if not repo:
-                raise ValueError("Repository not found")
-            repo.auto_sync = auto_sync
-
-    @handle_errors
-    def get_repo_location(self, url: str) -> Optional[str]:
-        with session_scope(self.Session) as session:
-            repo = session.query(RepositoryModel).filter_by(url=url).first()
-            return repo.location if repo else None
-
-    @handle_errors
-    def get_repo_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        with session_scope(self.Session) as session:
-            repo = session.query(RepositoryModel).filter_by(name=name).first()
-            return self._pack_repo_data(repo) if repo else None
-
-
 class RegistryManager:
-    """
-    Manages all registry-related operations.
-    """
-    def __init__(self, registry_path: Path) -> None:
-        self.engine = create_db_engine(registry_path)
-        self.script_registry = ScriptRegistry(self.engine)
-        self.package_registry = PackageRegistry(self.engine)
-        self.repository_registry = RepositoryRegistry(self.engine)
+    def __init__(self, registry_path: Path):
+        self.registry_path = registry_path
+        # Create a SQLite database inside the provided directory
+        db_file = registry_path / "registry.db"
+        self.engine = create_engine(f"sqlite:///{db_file}", echo=False)
+        self.Session = sessionmaker(bind=self.engine)
+        self._setup_db()
 
-    @handle_errors
-    def reset_registry(self) -> None:
-        """Drops and recreates registry tables."""
+    def _setup_db(self):
+        Base.metadata.create_all(self.engine)
+
+    def reset_registry(self):
+        """Drops and recreates the registry database tables."""
         Base.metadata.drop_all(self.engine)
         Base.metadata.create_all(self.engine)
-        logger.info("Registry tables dropped and recreated.")
 
-    @handle_errors
-    def register_package(self, pkg: Dict[str, Any], force: bool = False) -> None:
-        if force:
-            self.unregister_package(pkg["command"])
-        pkg_data = pkg.copy()
-        scripts = pkg_data.pop("scripts", {})
-        self.package_registry.add_package(**pkg_data)
-        for script_name, script in scripts.items():
-            self.script_registry.add_script(pkg_data["command"], script_name, script)
+    @contextmanager
+    def session_scope(self):
+        """Provide a transactional scope around a series of operations."""
+        session = self.Session()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
-    @handle_errors
-    def update_package(self, pkg: Dict[str, Any]) -> None:
-        pkg_data = pkg.copy()
-        scripts = pkg_data.pop("scripts", {})
-        command = pkg_data.get("command")
-        if not command:
-            raise ValueError("Missing package 'command' field for update.")
-        update_data = {k: v for k, v in pkg_data.items() if k != "command"}
-        self.package_registry.update_package(command, **update_data)
-        for script_name, script in scripts.items():
-            self.script_registry.update_script(command, script_name, script)
+    def register_group(self, group_manifest: dict, overwrite: bool = False):
+        """
+        Registers a group and its packages.
+        Raises ValueError if a group with the same name exists (unless overwrite is True).
+        """
+        with self.session_scope() as session:
+            existing_group = session.query(Group).filter_by(
+                name=group_manifest["name"]
+            ).first()
+            if existing_group and not overwrite:
+                raise ValueError(f"Group {group_manifest['name']} already exists")
+            elif existing_group and overwrite:
+                session.delete(existing_group)
+                session.commit()  # Ensure deletion before re-registering
 
-    @handle_errors
-    def unregister_package(self, command: str) -> None:
-        self.package_registry.delete_package(command)
-        for script in self.script_registry.list_scripts(command):
-            self.script_registry.delete_script(script["command"], script["script_name"])
+            # Create new group
+            group = Group(name=group_manifest["name"], location=group_manifest["location"])
+            session.add(group)
+            session.flush()  # to get group.id
 
-    @handle_errors
-    def retrieve_package(self, command: str) -> Optional[Dict[str, Any]]:
-        pkg = self.package_registry.get_package(command)
-        if pkg:
-            pkg["scripts"] = {
-                script["script_name"]: script for script in self.script_registry.list_scripts(command)
+            # Register each package from the manifest
+            for pkg in group_manifest.get("packages", []):
+                package = Package(
+                    name=pkg["name"],
+                    description=pkg.get("description", ""),
+                    dependencies=pkg.get("dependencies", {}),
+                    scripts=pkg.get("scripts", {}),
+                    group_id=group.id,
+                )
+                session.add(package)
+            session.commit()
+
+    def register_package(self, pkg_manifest: dict, group_name: str, overwrite: bool = False):
+        """
+        Registers or updates a package within an existing group.
+        
+        Parameters:
+            pkg_manifest (dict): The package manifest containing keys 'name', 'description', 'dependencies', and 'scripts'.
+            group_name (str): The name of the group in which to add/update the package.
+            overwrite (bool): If True, updates the package if it already exists; otherwise, raises a ValueError.
+        
+        Raises:
+            ValueError: If the specified group does not exist or if the package exists and overwrite is False.
+        """
+        with self.session_scope() as session:
+            group = session.query(Group).filter_by(name=group_name).first()
+            if not group:
+                raise ValueError(f"Group {group_name} not found")
+            existing_package = session.query(Package).filter_by(group_id=group.id, name=pkg_manifest["name"]).first()
+            if existing_package and not overwrite:
+                raise ValueError(f"Package {pkg_manifest['name']} already exists in group {group_name}")
+            elif existing_package and overwrite:
+                # Update existing package fields
+                existing_package.description = pkg_manifest.get("description", "")
+                existing_package.dependencies = pkg_manifest.get("dependencies", {})
+                existing_package.scripts = pkg_manifest.get("scripts", {})
+                session.commit()
+            else:
+                # Create new package record
+                new_package = Package(
+                    name=pkg_manifest["name"],
+                    description=pkg_manifest.get("description", ""),
+                    dependencies=pkg_manifest.get("dependencies", {}),
+                    scripts=pkg_manifest.get("scripts", {}),
+                    group_id=group.id,
+                )
+                session.add(new_package)
+                session.commit()
+
+    def retrieve_group(self, group_name: str) -> dict:
+        """
+        Retrieves a group and its packages as a dict.
+        The returned dict has the keys: name, location, and packages (a dict keyed by package name).
+        """
+        with self.session_scope() as session:
+            group = session.query(Group).filter_by(name=group_name).first()
+            if not group:
+                raise ValueError(f"Group {group_name} not found")
+            packages_dict = {}
+            for pkg in group.packages:
+                packages_dict[pkg.name] = {
+                    "name": pkg.name,
+                    "description": pkg.description,
+                    "dependencies": pkg.dependencies,
+                    "scripts": pkg.scripts,
+                }
+            return {"name": group.name, "location": group.location, "packages": packages_dict}
+
+    def retrieve_package(
+        self, package_name: str, group_name: Optional[str] = None
+    ) -> dict:
+        """
+        Retrieves a package.
+        If group_name is provided, it retrieves the package within that group;
+        otherwise, it returns the most recently registered package with the given name.
+        """
+        with self.session_scope() as session:
+            if group_name:
+                group = session.query(Group).filter_by(name=group_name).first()
+                if not group:
+                    raise ValueError(f"Group {group_name} not found")
+                package = (
+                    session.query(Package)
+                    .filter_by(group_id=group.id, name=package_name)
+                    .first()
+                )
+            else:
+                # Get the package with the latest created_at timestamp among those with the given name
+                package = (
+                    session.query(Package)
+                    .filter_by(name=package_name)
+                    .order_by(desc(Package.created_at))
+                    .first()
+                )
+            if not package:
+                raise ValueError(f"Package {package_name} not found")
+            return {
+                "name": package.name,
+                "description": package.description,
+                "dependencies": package.dependencies,
+                "scripts": package.scripts,
             }
-        return pkg
+
+    def retrieve_script(
+        self, package_name: str, script_name: str, group_name: Optional[str] = None
+    ) -> dict:
+        """
+        Retrieves a script from a package.
+        If group_name is specified, the package from that group is used; otherwise,
+        the globally registered (latest) package is used.
+        """
+        package = self.retrieve_package(package_name, group_name)
+        scripts = package.get("scripts", {})
+        if script_name not in scripts:
+            raise ValueError(f"Script {script_name} not found in package {package_name}")
+        return scripts[script_name]
+
+    def list_groups(self) -> List[str]:
+        """Lists the names of all registered groups."""
+        with self.session_scope() as session:
+            groups = session.query(Group).all()
+            return [group.name for group in groups]
+
+    def list_packages(self) -> List[str]:
+        """
+        Lists all globally visible package names.
+        If multiple packages share the same name across groups,
+        the most recently registered one is returned.
+        """
+        with self.session_scope() as session:
+            packages = (
+                session.query(Package)
+                .order_by(desc(Package.created_at))
+                .all()
+            )
+            seen = {}
+            for pkg in packages:
+                if pkg.name not in seen:
+                    seen[pkg.name] = pkg
+            return list(seen.keys())
+
+    def remove_group(self, group_name: str):
+        """
+        Removes a group and all its associated packages.
+        Raises a ValueError if the group does not exist.
+        """
+        with self.session_scope() as session:
+            group = session.query(Group).filter_by(name=group_name).first()
+            if not group:
+                raise ValueError(f"Group {group_name} not found")
+            session.delete(group)
+            session.commit()
+
+    def remove_package(self, package_name: str, group_name: Optional[str] = None):
+        """
+        Removes a package.
+        If group_name is provided, removes the package from that group;
+        otherwise, removes the globally registered (latest) package with the given name.
+        Raises a ValueError if the package does not exist.
+        """
+        with self.session_scope() as session:
+            if group_name:
+                group = session.query(Group).filter_by(name=group_name).first()
+                if not group:
+                    raise ValueError(f"Group {group_name} not found")
+                package = session.query(Package).filter_by(group_id=group.id, name=package_name).first()
+            else:
+                package = session.query(Package).filter_by(name=package_name).order_by(desc(Package.created_at)).first()
+            if not package:
+                raise ValueError(f"Package {package_name} not found")
+            session.delete(package)
+            session.commit()
