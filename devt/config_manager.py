@@ -2,7 +2,7 @@ import inspect
 import logging
 import os
 import subprocess
-import winreg
+import platform
 from pathlib import Path
 
 import typer
@@ -48,15 +48,40 @@ ENV_WORKSPACE_DIR = f"{APP_NAME.upper()}_WORKSPACE_APP_DIR"
 
 def set_user_environment_var(name: str, value: str) -> None:
     """
-    Persists a user environment variable across sessions.
+    Persists a user environment variable across sessions in a cross-platform way.
     """
+    system = platform.system()
+    
     try:
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
-        ) as key:
-            winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
-            logger.debug("Set user environment variable: %s=%s", name, value)
-    except OSError as e:
+        if system == "Windows":
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
+            ) as key:
+                winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+            logger.debug("Set user environment variable on Windows: %s=%s", name, value)
+        
+        elif system in ["Linux", "Darwin"]:  # Darwin is macOS
+            bashrc_path = os.path.expanduser("~/.bashrc")
+            zshrc_path = os.path.expanduser("~/.zshrc")
+
+            # Export variable in the shell profile
+            export_command = f'export {name}="{value}"\n'
+
+            # Add it to ~/.bashrc and ~/.zshrc to persist it
+            for rc_path in [bashrc_path, zshrc_path]:
+                if os.path.exists(rc_path):
+                    with open(rc_path, "a") as f:
+                        f.write(export_command)
+
+            # Also set it for the current session
+            os.environ[name] = value
+
+            logger.debug("Set user environment variable on Linux/macOS: %s=%s", name, value)
+        else:
+            logger.warning("Unsupported OS: %s. Cannot persist environment variable.", system)
+
+    except Exception as e:
         logger.error("Failed to set user environment variable %s: %s", name, e)
 
 
