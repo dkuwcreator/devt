@@ -3,7 +3,6 @@ import threading
 import time
 import typer
 import logging
-from devt.cli.helpers import get_managers
 from devt.cli.tool_service import ToolService
 from devt.package.manager import PackageManager
 from devt.registry.manager import RegistryManager
@@ -16,15 +15,15 @@ class SyncManager:
 
     @classmethod
     def from_context(cls, ctx: typer.Context) -> "SyncManager":
-        registry, pkg_manager, registry_dir, _ = get_managers(ctx)
-        tool_service = ToolService.from_context(ctx)
-        return cls(registry_dir, registry, pkg_manager, tool_service)
-
-    def __init__(self, registry_dir, registry, pkg_manager, tool_service):
+        registry_dir = ctx.obj.get("registry_dir")
+        scope = ctx.obj.get("scope")
+        return cls(registry_dir, scope)
+    
+    def __init__(self, registry_dir, scope):
         self.registry = RegistryManager(registry_dir)
         self.repo_manager = RepoManager(registry_dir)
         self.pkg_manager = PackageManager(registry_dir)
-        self.tool_service: ToolService = tool_service
+        self.tool_service = ToolService(registry_dir, scope)
         self.last_sync_time = 0
 
     def sync_single_repository(self, repo: dict, force: bool = False) -> None:

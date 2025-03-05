@@ -27,7 +27,7 @@ DEFAULT_CONFIG = {
     "scope": "user",
     "log_level": "WARNING",
     "log_format": "default",
-    "auto_sync": False,
+    "auto_sync": True,
 }
 
 # Directories and Files (User)
@@ -44,6 +44,7 @@ WORKSPACE_REGISTRY_FILE = WORKSPACE_REGISTRY_DIR / REGISTRY_FILE_NAME
 # Temporary directory
 TEMP_DIR = os.environ.get("TEMP", "/tmp")
 ENV_WORKSPACE_DIR = f"{APP_NAME.upper()}_WORKSPACE_APP_DIR"
+ENV_TOOL_DIR = f"{APP_NAME.upper()}_TOOL_DIR"
 
 
 def set_user_environment_var(name: str, value: str) -> None:

@@ -44,21 +44,6 @@ def main(ctx: typer.Context) -> None:
     ctx.obj["tool_manager"] = ToolService.from_context(ctx)
     ctx.obj["sync_manager"] = SyncManager.from_context(ctx)
 
-    # Determine auto_sync setting from CLI or persisted configuration.
-    config: Dict[str, Any] = ctx.obj.get("config", {})
-    # If auto_sync is enabled and Git is installed, use the managers already in the context.
-    if config.get("auto_sync", False):
-        logger.info("Auto-sync option is enabled.")
-        if is_git_installed():
-            if ctx.invoked_subcommand != "repo":
-                logger.info("Git is installed and subcommand is not 'repo'; starting auto-sync.")
-                sync_manager = SyncManager.from_context(ctx)
-                sync_manager.start_background_sync(ctx)
-            else:
-                logger.info("Subcommand is 'repo'; skipping auto-sync.")
-        else:
-            logger.warning("Git is not installed; auto-sync will not be started.")
-
 
 @repo_app.command("add")
 @handle_errors

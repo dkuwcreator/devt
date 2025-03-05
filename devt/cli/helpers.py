@@ -103,6 +103,7 @@ def setup_app_context(
         "registry": registry,
         "pkg_manager": pkg_manager,
     }
+           
     logger.info(
         "App context set up with scope: %s, registry_dir: %s",
         effective_scope,

@@ -5,7 +5,6 @@ from typing import Dict, List, Optional
 import typer
 
 from devt.cli.helpers import (
-    get_managers,
     get_scopes_to_query,
     get_package_from_registries,
 )
@@ -24,7 +23,8 @@ class ToolService:
 
     @classmethod
     def from_context(cls, ctx: typer.Context) -> "ToolService":
-        _, _, registry_dir, scope = get_managers(ctx)
+        registry_dir = ctx.obj.get("registry_dir")
+        scope = ctx.obj.get("scope")
         return cls(registry_dir, scope)
 
     def __init__(

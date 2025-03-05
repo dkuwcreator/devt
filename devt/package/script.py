@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 import logging
 
-from devt.config_manager import SUBPROCESS_ALLOWED_KEYS
+from devt.config_manager import ENV_TOOL_DIR, SUBPROCESS_ALLOWED_KEYS
 from .utils import build_command_tokens
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class Script:
     ) -> None:
         self.args = args
         self.shell = shell
-        self.cwd = Path(cwd) if not isinstance(cwd, Path) else cwd
+        self.cwd = Path.cwd() if cwd == "workspace" else Path(cwd) if not isinstance(cwd, Path) else cwd
         self.env = env
         # Filter kwargs based on allowed keys
         self.kwargs = {k: v for k, v in kwargs.items() if k in SUBPROCESS_ALLOWED_KEYS}
@@ -53,8 +53,9 @@ class Script:
         Resolve the script's working directory relative to base_dir.
         """
         resolved = self.cwd if self.cwd.is_absolute() else (base_dir / self.cwd).resolve()
-        if not str(resolved).startswith(str(base_dir.resolve())):
-            raise ValueError("Relative path cannot be outside of the package directory.")
+        if not str(resolved).startswith(str(base_dir.resolve())) or str(resolved).startswith(str(Path.cwd().resolve())):
+            logger.error("Relative path cannot be outside of the package directory or workspace.")
+            raise ValueError("Relative path cannot be outside of the package directory or workspace.")
         if not resolved.exists():
             if auto_create:
                 logger.info("Auto-creating missing working directory '%s'.", resolved)
@@ -68,10 +69,11 @@ class Script:
         logger.debug("Resolved working directory: %s", resolved)
         return resolved
 
-    def resolve_env(self) -> Dict[str, str]:
+    def resolve_env(self, base_dir: Path) -> Dict[str, str]:
         """
         Merge the current environment with the script's environment.
         """
+        os.environ[ENV_TOOL_DIR] = str(base_dir)
         env = {**os.environ, **self.env} if self.env is not None else os.environ.copy()
         logger.debug("Resolved environment variables.")
         return env
@@ -115,7 +117,7 @@ class Script:
         is_posix = not is_windows
 
         resolved_cwd = self.resolve_cwd(base_dir, auto_create=auto_create_cwd)
-        env = self.resolve_env()
+        env = self.resolve_env(base_dir)
 
         shell = shell if shell is not None else self.shell
 

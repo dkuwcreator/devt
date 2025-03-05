@@ -5,6 +5,7 @@ devt/cli/main.py
 Entry point for the DevT CLI.
 """
 
+from typing import Any, Dict
 import typer
 import logging
 
@@ -14,6 +15,7 @@ from devt.cli.commands.tool import tool_app
 from devt.cli.commands.workspace import workspace_app
 from devt.cli.commands.self import self_app
 from devt.cli.commands.execute import execute_app
+from devt.cli.sync_service import SyncManager
 
 logger = logging.getLogger(__name__)
 app = typer.Typer(help="DevT: A CLI tool for managing development tool packages.")
@@ -47,6 +49,21 @@ def main(
     )
     setup_app_context(ctx, scope, log_level, log_format, auto_sync)
     logger.info("App context successfully set up.")
+
+    # Determine auto_sync setting from CLI or persisted configuration.
+    config: Dict[str, Any] = ctx.obj.get("config", {})
+    # If auto_sync is enabled and Git is installed, use the managers already in the context.
+    if config.get("auto_sync", False):
+        logger.info("Auto-sync option is enabled.")
+        if is_git_installed():
+            if ctx.invoked_subcommand != "repo":
+                logger.info("Git is installed and subcommand is not 'repo'; starting auto-sync.")
+                sync_manager = SyncManager.from_context(ctx)
+                sync_manager.start_background_sync(ctx)
+            else:
+                logger.info("Subcommand is 'repo'; skipping auto-sync.")
+        else:
+            logger.warning("Git is not installed; auto-sync will not be started.")
 
     if not ctx.invoked_subcommand:
         typer.echo("No command provided. Use --help for usage.")
