@@ -53,8 +53,7 @@ class Script:
         Resolve the script's working directory relative to base_dir.
         """
         resolved = self.cwd if self.cwd.is_absolute() else (base_dir / self.cwd).resolve()
-        if not str(resolved).startswith(str(base_dir.resolve())) or str(resolved).startswith(str(Path.cwd().resolve())):
-            logger.error("Relative path cannot be outside of the package directory or workspace.")
+        if not (str(resolved).startswith(str(base_dir.resolve())) or str(resolved).startswith(str(Path.cwd().resolve()))):
             raise ValueError("Relative path cannot be outside of the package directory or workspace.")
         if not resolved.exists():
             if auto_create:
