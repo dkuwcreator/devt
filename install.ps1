@@ -22,7 +22,7 @@ param (
 )
 
 # Constants
-$InstallerName      = "devt-installer"
+$InstallerName      = "devt"
 $DefaultInstallDir  = Join-Path $env:USERPROFILE "devt"
 
 # Function: Get-LatestVersion
@@ -46,23 +46,23 @@ function Get-LatestVersion {
     }
 }
 
-# Function: Get-OSSuffix
-function Get-OSSuffix {
-    # For Windows, the installer file uses "windows.exe" as suffix.
-    return "windows.exe"
+# Function: Get-osKey
+function Get-osKey {
+    # For Windows, the installer file uses "windows" as os key.
+    return "windows"
 }
 
 # Determine OS-specific suffix and latest version
-$osSuffix      = Get-OSSuffix
+$osKey      = Get-osKey
 $latestVersion = Get-LatestVersion
 
 # Build the download URL for the installer.
-# Example: https://github.com/dkuwcreator/devt/releases/download/v0.0.54/devt-installer-v0.0.54-windows.exe
-$installerUrl = "https://github.com/dkuwcreator/devt/releases/download/$latestVersion/$InstallerName-$osSuffix"
+# Example: https://github.com/dkuwcreator/devt/releases/download/v0.0.54/devt-windows-installer.exe
+$installerUrl = "https://github.com/dkuwcreator/devt/releases/download/$latestVersion/$InstallerName-$osKey-installer.exe"
 
 # Determine installation directory and installer file path
 $installDir     = if ($InstallPath) { $InstallPath } else { $DefaultInstallDir }
-$installerPath  = Join-Path $installDir "$InstallerName.exe"
+$installerPath  = Join-Path $installDir "$InstallerName-installer.exe"
 
 function Invoke-Installer {
     # Ensure the installation directory exists.

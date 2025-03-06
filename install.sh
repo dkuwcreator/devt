@@ -11,7 +11,7 @@
 
 # --- Configuration and Defaults ---
 
-INSTALLER_NAME="devt-installer"
+INSTALLER_NAME="devt"
 DEFAULT_INSTALL_DIR="$HOME/devt"
 
 # Parse command-line arguments
@@ -38,9 +38,9 @@ fi
 
 # --- Helper Functions ---
 
-# Determine the OS-specific suffix.
+# Determine the OS-specific key.
 # For Linux, returns "linux"; for Darwin (macOS), returns "macos"; otherwise, lowercases uname.
-get_os_suffix() {
+get_os_key() {
   local os
   os=$(uname)
   if [[ "$os" == "Darwin" ]]; then
@@ -98,14 +98,14 @@ install_app() {
   fi
   
   local os_suffix
-  os_suffix=$(get_os_suffix)
+  os_suffix=$(get_os_key)
   
   local latest_version
   latest_version=$(get_latest_version)
   
   # Build the download URL.
-  # Example: https://github.com/dkuwcreator/devt/releases/download/v0.0.54/devt-installer-v0.0.54-linux
-  local installer_url="${INSTALLER_NAME}-${os_suffix}"
+  # Example: https://github.com/dkuwcreator/devt/releases/download/v0.0.54/devt-linux-installer
+  local installer_url="${INSTALLER_NAME}-${os_suffix}-installer"
   installer_url="https://github.com/dkuwcreator/devt/releases/download/${latest_version}/${installer_url}"
   
   local installer_path="${INSTALL_PATH}/${INSTALLER_NAME}"

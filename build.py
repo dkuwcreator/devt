@@ -40,20 +40,19 @@ def get_output_name(exe_type: str = "") -> str:
     exe_type: "" for main executable or "installer"
     Raises ValueError for unsupported executable types.
     """
-    allowed_types = {"", "installer"}
-    if exe_type not in allowed_types:
+    if exe_type not in {"", "installer"}:
         raise ValueError("Invalid executable type specified.")
 
     system = platform.system()
     ext = ".exe" if system == "Windows" else ""
-    installer_suffix = "-installer-" if exe_type == "installer" else "-"
     platform_key = {
         "Windows": "windows",
         "Linux": "linux",
         "Darwin": "macos"
     }.get(system, system.lower())
 
-    return f"{OUTPUT_NAME}{installer_suffix}{platform_key}{ext}"
+    suffix = "-installer" if exe_type == "installer" else ""
+    return f"{OUTPUT_NAME}-{platform_key}{suffix}{ext}"
 
 def ensure_venv() -> None:
     if not VENV_DIR.exists():

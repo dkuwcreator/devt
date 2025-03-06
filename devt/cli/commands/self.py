@@ -52,11 +52,11 @@ def get_updater_download_url(version_str: str = "latest") -> str:
     Build the updater download URL dynamically.
     
     The URL format is:
-      https://github.com/dkuwcreator/devt/releases/download/<version>/devt-installer-<os_suffix>
+      https://github.com/dkuwcreator/devt/releases/download/<version>/devt-<os_suffix>-installer
     """
     resolved_version = resolve_version(version_str)
     os_suffix = get_os_suffix()
-    url = f"https://github.com/dkuwcreator/devt/releases/download/{resolved_version}/devt-installer-{os_suffix}"
+    url = f"https://github.com/dkuwcreator/devt/releases/download/{resolved_version}/devt-{os_suffix}-installer"
     logger.info("Updater download URL: %s", url)
     return url
 
@@ -118,7 +118,6 @@ def self_show() -> None:
     install_dir = get_install_dir()
     typer.echo(f"DevT {__version__}")
     typer.echo(f"Installation directory: {install_dir}")
-    check_updates()
 
 
 @self_app.command("upgrade")

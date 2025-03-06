@@ -132,10 +132,10 @@ jobs:
           prerelease: false
           files: |
             dist-windows/devt-windows.exe
-            dist-windows/devt-installer-windows.exe
+            dist-windows/devt-windows-installer.exe
             dist-linux/devt-linux
-            dist-linux/devt-installer-linux
+            dist-linux/devt-linux-installer
             dist-macos/devt-macos
-            dist-macos/devt-installer-macos
+            dist-macos/devt-macos-installer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
