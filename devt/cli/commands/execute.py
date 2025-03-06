@@ -28,8 +28,7 @@ def run_script(
     """
     Executes a script from an installed tool package.
     """
-    if extra_args is None:
-        extra_args = []
+    extra_args = extra_args or []
     logger.info(f"Executing script with parameters: {extra_args}")
 
     scope = scope.lower()

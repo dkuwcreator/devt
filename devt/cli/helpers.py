@@ -118,26 +118,25 @@ def get_scopes_to_query(scope: Optional[str] = None) -> Dict[str, RegistryManage
     If scope is provided as 'user' or 'workspace', returns that one.
     If scope is 'both' or None, returns both.
     """
-    from devt.config_manager import USER_REGISTRY_DIR, WORKSPACE_REGISTRY_DIR
 
     if scope:
         scope_lower = scope.lower()
         if scope_lower in ("both", "all"):
             return {
-                "user": RegistryManager(USER_REGISTRY_DIR),
-                "workspace": RegistryManager(WORKSPACE_REGISTRY_DIR),
+                "user": RegistryManager("user"),
+                "workspace": RegistryManager("workspace"),
             }
         elif scope_lower not in ("user", "workspace"):
             typer.echo("Invalid scope provided. Choose 'workspace', 'user', or 'both'.")
             raise typer.Exit(code=1)
         if scope_lower == "user":
-            return {"user": RegistryManager(USER_REGISTRY_DIR)}
+            return {"user": RegistryManager("user")}
         else:
-            return {"workspace": RegistryManager(WORKSPACE_REGISTRY_DIR)}
+            return {"workspace": RegistryManager("workspace")}
     else:
         return {
-            "user": RegistryManager(USER_REGISTRY_DIR),
-            "workspace": RegistryManager(WORKSPACE_REGISTRY_DIR),
+            "user": RegistryManager("user"),
+            "workspace": RegistryManager("workspace"),
         }
 
 
