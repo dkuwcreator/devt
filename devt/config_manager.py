@@ -46,6 +46,11 @@ TEMP_DIR = os.environ.get("TEMP", "/tmp")
 ENV_WORKSPACE_DIR = f"{APP_NAME.upper()}_WORKSPACE_APP_DIR"
 ENV_TOOL_DIR = f"{APP_NAME.upper()}_TOOL_DIR"
 
+SCOPE_TO_DIR = {
+    "user": USER_APP_DIR,
+    "workspace": WORKSPACE_APP_DIR,
+}
+
 
 def set_user_environment_var(name: str, value: str) -> None:
     """

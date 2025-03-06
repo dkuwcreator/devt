@@ -72,7 +72,7 @@ class SyncManager:
                 except Exception as e:
                     logger.error("Failed to auto-sync repository '%s': %s", repo_name, e)
 
-    def start_background_sync(self, ctx: typer.Context) -> None:
+    def start_background_sync(self) -> None:
         """
         Start a thread to perform background auto-sync if enough time has passed.
         """
