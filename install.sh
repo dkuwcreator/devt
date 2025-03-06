@@ -76,15 +76,18 @@ INSTALLER_URL="https://github.com/dkuwcreator/devt/releases/download/${LATEST_VE
 EXECUTABLE_PATH="$INSTALL_DIR/$OUTPUT_NAME"
 INSTALLER_PATH="$INSTALL_DIR/$INSTALLER_NAME"
 
-# Function to update the User PATH in ~/.bashrc (or ~/.zshrc if preferred)
+# Function to update the User PATH in ~/.bashrc and ~/.zshrc if preferred
 update_path() {
-    local shell_rc="$HOME/.bashrc"
-    if grep -q "$INSTALL_DIR" "$shell_rc"; then
-        echo "$INSTALL_DIR is already in your PATH in $shell_rc."
-    else
-        echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$shell_rc"
-        echo "Added $INSTALL_DIR to PATH in $shell_rc. Restart your terminal for changes to take effect."
-    fi
+    local shell=("$HOME/.bashrc" "$HOME/.zshrc")
+    for n in ${shell[@]};
+    do
+        if grep -q "$INSTALL_DIR" "$n"; then
+            echo "$INSTALL_DIR is already in your PATH in $n."
+        else
+            echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$n"
+            echo "Added $INSTALL_DIR to PATH in $n. Restart your terminal for changes to take effect."
+        fi
+    done
 }
 
 # Function to install the application
