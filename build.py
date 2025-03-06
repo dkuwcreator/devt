@@ -1,251 +1,125 @@
+#!/usr/bin/env python
 import subprocess
 import platform
 import shutil
 import logging
-import typer
 from pathlib import Path
+
+import typer
 from dotenv import dotenv_values
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
-# Load environment variables from project.env
+# ------------------------------------------------------------------------------
+# Configuration & Logging
+# ------------------------------------------------------------------------------
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 config = dotenv_values("project.env")
-
-# Directories and files
 SESSION_CWD = Path(__file__).parent
-VENV_DIR = SESSION_CWD / config.get("VENV_DIR", ".venv")
 
-# Constants from project.env
-# Updated default OUTPUT_NAME to "devt" to match the release filenames.
+# Directories and filenames
+VENV_DIR = SESSION_CWD / config.get("VENV_DIR", ".venv")
+DIST_DIR = SESSION_CWD / config.get("DIST_DIR", "dist")
 ENTRY_SCRIPT = config.get("ENTRY_SCRIPT", "my_project/cli.py")
 OUTPUT_NAME = config.get("OUTPUT_NAME", "devt")
 UPDATER_SCRIPT = config.get("UPDATER_SCRIPT", "my_project/installer.py")
-DIST_DIR = SESSION_CWD / config.get("DIST_DIR", "dist")
-
-# Where your package's __init__.py lives
 INIT_FILE = SESSION_CWD / OUTPUT_NAME / "__init__.py"
 VERSION_FILE = SESSION_CWD / ".version"
-
-# Platform-specific Python executable in the venv
-PYTHON_EXECUTABLE = (
-    VENV_DIR / "Scripts" / "python.exe"
-    if platform.system() == "Windows"
-    else VENV_DIR / "bin" / "python"
-)
+PYTHON_EXECUTABLE = VENV_DIR / ("Scripts/python.exe" if platform.system() == "Windows" else "bin/python")
 
 app = typer.Typer()
 
+# ------------------------------------------------------------------------------
+# Helper Functions
+# ------------------------------------------------------------------------------
+def run_command(cmd: list) -> None:
+    logging.info("Running: " + " ".join(cmd))
+    subprocess.run(cmd, check=True)
+
+def get_output_name(exe_type: str = "") -> str:
+    """
+    Returns the correct output executable name based on the executable type and OS.
+    exe_type: "" for main executable or "installer"
+    Raises ValueError for unsupported executable types.
+    """
+    allowed_types = {"", "installer"}
+    if exe_type not in allowed_types:
+        raise ValueError("Invalid executable type specified.")
+
+    system = platform.system()
+    ext = ".exe" if system == "Windows" else ""
+    installer_suffix = "-installer-" if exe_type == "installer" else "-"
+    platform_key = {
+        "Windows": "windows",
+        "Linux": "linux",
+        "Darwin": "macos"
+    }.get(system, system.lower())
+
+    return f"{OUTPUT_NAME}{installer_suffix}{platform_key}{ext}"
 
 def ensure_venv() -> None:
-    """Ensure a virtual environment exists and install dependencies if missing."""
     if not VENV_DIR.exists():
         logging.info("Creating virtual environment...")
-        subprocess.run(["python", "-m", "venv", str(VENV_DIR)], check=True)
-
+        run_command(["python", "-m", "venv", str(VENV_DIR)])
     if not PYTHON_EXECUTABLE.exists():
-        logging.error(
-            f"Python executable not found at {PYTHON_EXECUTABLE}. The virtual environment may be corrupted."
-        )
+        logging.error(f"Python executable missing: {PYTHON_EXECUTABLE}")
         raise FileNotFoundError(f"Python executable missing: {PYTHON_EXECUTABLE}")
-
-    logging.info("Installing dependencies in the virtual environment...")
-    subprocess.run(
-        [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "--upgrade", "pip"], check=True
-    )
-    subprocess.run(
-        [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "-r", "requirements.txt"],
-        check=True,
-    )
-
-
-def ensure_pyinstaller() -> None:
-    """Ensure PyInstaller is installed before running the build."""
-    try:
-        subprocess.run(
-            [str(PYTHON_EXECUTABLE), "-m", "PyInstaller", "--version"],
-            check=True,
-            capture_output=True,
-        )
-        logging.info("PyInstaller is installed.")
-    except subprocess.CalledProcessError:
-        logging.info("PyInstaller not found. Installing...")
-        subprocess.run(
-            [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "pyinstaller"], check=True
-        )
-
+    logging.info("Installing dependencies...")
+    run_command([str(PYTHON_EXECUTABLE), "-m", "pip", "install", "--upgrade", "pip"])
+    run_command([str(PYTHON_EXECUTABLE), "-m", "pip", "install", "-r", "requirements.txt"])
 
 def get_version() -> str:
-    """Retrieve the version from the .version file."""
     if VERSION_FILE.exists():
         version = VERSION_FILE.read_text().strip()
-        logging.info(f"Project version: {version}")
+        logging.info(f"Version: {version}")
         return version
-    logging.warning("No version found in .version file.")
+    logging.warning("No .version file found.")
     return "Unknown"
 
-
 def inject_version() -> None:
-    """Inject the version number into __init__.py if applicable."""
     version = get_version()
     if version == "Unknown":
-        logging.warning("Skipping version injection due to missing .version file.")
+        logging.warning("Skipping version injection.")
         return
-
     if not INIT_FILE.exists():
-        logging.error(f"Cannot inject version: {INIT_FILE} does not exist.")
+        logging.error(f"Missing __init__.py: {INIT_FILE}")
         return
-
-    original_code = INIT_FILE.read_text(encoding="utf-8")
-    updated_code = original_code.replace(
-        '__version__ = "dev"', f'__version__ = "{version}"'
-    )
-
-    if original_code != updated_code:
-        INIT_FILE.write_text(updated_code, encoding="utf-8")
-        logging.info(f"Injected version {version} into {INIT_FILE}.")
+    content = INIT_FILE.read_text(encoding="utf-8")
+    new_content = content.replace('__version__ = "dev"', f'__version__ = "{version}"')
+    if content != new_content:
+        INIT_FILE.write_text(new_content, encoding="utf-8")
+        logging.info(f"Injected version {version} into {INIT_FILE}")
     else:
-        logging.info("Version is already correctly set. No changes made.")
+        logging.info("Version already set.")
 
+def build_executable(script: str, exe_type: str = "") -> None:
+    output_name = get_output_name(exe_type)
+    logging.info(f"Building {output_name} for {platform.system()}...")
 
-def clean() -> None:
-    """Remove previous build artifacts."""
-    build_dir = SESSION_CWD / "build"
-    spec_files = [
-        SESSION_CWD / f"{OUTPUT_NAME}.spec",
-        SESSION_CWD / f"{OUTPUT_NAME}_installer.spec",
-    ]
+    if not Path(script).exists():
+        logging.error(f"Missing script: {script}")
+        raise FileNotFoundError(f"Installer missing: {script}")
+    
+    cmd = [str(PYTHON_EXECUTABLE), "-m", "PyInstaller", "--onefile", "--name", output_name, script]
+    run_command(cmd)
+    logging.info(f"Build completed for {output_name} in {DIST_DIR}")
 
-    for path in [build_dir, DIST_DIR, *spec_files]:
-        if path.exists():
-            if path.is_dir():
-                shutil.rmtree(path)
-            else:
-                path.unlink()
-            logging.info(f"Removed {path}")
-
-    logging.info("Cleaned previous build artifacts.")
-
-
+# ------------------------------------------------------------------------------
+# CLI Command
+# ------------------------------------------------------------------------------
 @app.command()
 def build(
-    clean_before: bool = typer.Option(
-        False, "--clean", help="Clean build artifacts before building"
-    ),
-    ci: bool = typer.Option(
-        False, "--ci", help="Run in CI mode (no prompts, exit on error)"
-    ),
-    skip_installer: bool = typer.Option(
-        False, "--skip-installer", help="Build the installer alongside the main app"
-    ),
+    ci: bool = typer.Option(False, "--ci", help="CI mode, skip venv setup"),
+    skip_installer: bool = typer.Option(False, "--skip-installer", help="Skip installer build"),
 ):
-    """Build the project into standalone executables."""
-    if clean_before:
-        clean()
-
-    # If not --ci is enabled, ensure the environment is set up
     if not ci:
         ensure_venv()
-
-    # Ensure PyInstaller is installed
-    ensure_pyinstaller()
-
-    # Inject the version into __init__.py
     inject_version()
-
-    logging.info(f"Building {OUTPUT_NAME} for {platform.system()}...")
-
-    # Build the main application
-    cmd_main = [
-        str(PYTHON_EXECUTABLE),
-        "-m",
-        "PyInstaller",
-        "--onefile",
-        "--name",
-        OUTPUT_NAME,
-        ENTRY_SCRIPT,
-    ]
-
-    try:
-        subprocess.run(cmd_main, check=True)
-        logging.info(f"Main build completed. Executable is in the '{DIST_DIR}' folder.")
-    except subprocess.CalledProcessError as e:
-        logging.error("Main build process failed.")
-        raise e
-
-    # Rename the main executable using the pattern: devt-v0.0.54-<os>[.exe]
-    system = platform.system()
-    if system == "Windows":
-        new_main_name = f"{OUTPUT_NAME}-windows.exe"
-    elif system == "Linux":
-        new_main_name = f"{OUTPUT_NAME}-linux"
-    elif system == "Darwin":
-        new_main_name = f"{OUTPUT_NAME}-macos"
-    else:
-        new_main_name = f"{OUTPUT_NAME}-{system.lower()}"
-
-    # Determine the original built executable file name
-    orig_main = DIST_DIR / (OUTPUT_NAME + (".exe" if system == "Windows" else ""))
-    new_main = DIST_DIR / new_main_name
-
-    if orig_main.exists():
-        logging.info(f"Renaming {orig_main} to {new_main}")
-        orig_main.rename(new_main)
-    else:
-        logging.error(f"Main executable not found at {orig_main}")
-
-    # Build the installer if enabled
+    build_executable(ENTRY_SCRIPT)
     if not skip_installer:
-        logging.info("Building installer...")
-
-        if not Path(UPDATER_SCRIPT).exists():
-            logging.error(f"Updater script not found: {UPDATER_SCRIPT}")
-            raise FileNotFoundError(f"Updater script missing: {UPDATER_SCRIPT}")
-
-        cmd_installer = [
-            str(PYTHON_EXECUTABLE),
-            "-m",
-            "PyInstaller",
-            "--onefile",
-            "--name",
-            f"{OUTPUT_NAME}_installer",
-            UPDATER_SCRIPT,
-        ]
-        try:
-            subprocess.run(cmd_installer, check=True)
-            logging.info(
-                f"Updater build completed. Executable is in the '{DIST_DIR}' folder."
-            )
-        except subprocess.CalledProcessError as e:
-            logging.error("Updater build process failed.")
-            raise e
-
-        # Rename the installer executable similarly
-        if system == "Windows":
-            new_inst_name = f"{OUTPUT_NAME}-installer-windows.exe"
-        elif system == "Linux":
-            new_inst_name = f"{OUTPUT_NAME}-installer-linux"
-        elif system == "Darwin":
-            new_inst_name = f"{OUTPUT_NAME}-installer-macos"
-        else:
-            new_inst_name = f"{OUTPUT_NAME}-installer-{system.lower()}"
-
-        orig_inst = DIST_DIR / (f"{OUTPUT_NAME}_installer" + (".exe" if system == "Windows" else ""))
-        new_inst = DIST_DIR / new_inst_name
-        if orig_inst.exists():
-            logging.info(f"Renaming installer {orig_inst} to {new_inst}")
-            orig_inst.rename(new_inst)
-        else:
-            logging.warning(f"Installer executable not found at {orig_inst}")
-
-    # Debug: list files in the distribution directory
+        build_executable(UPDATER_SCRIPT, "installer")
     if DIST_DIR.exists():
-        logging.info("Built files in the dist directory:")
+        logging.info("Built files:")
         for file in DIST_DIR.iterdir():
             logging.info(file.name)
-
 
 if __name__ == "__main__":
     app()

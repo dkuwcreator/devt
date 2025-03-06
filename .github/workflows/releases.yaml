@@ -3,18 +3,17 @@ name: Build and Release devtools
 on:
   push:
     tags:
-      - "v*.*.*" # Triggers on versioned tags (e.g., v1.0.0)
+      - "v*.*.*"  # Triggers on versioned tags (e.g., v1.0.0)
 
 permissions:
-  contents: write # Grant permission to create releases
+  contents: write  # Grant permission to create releases
 
 jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest] # Build for Windows, Linux, macOS
-
+        os: [windows-latest, ubuntu-latest, macos-latest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -24,60 +23,64 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Cache virtual environment
+        uses: actions/cache@v3
+        with:
+          path: .venv
+          key: ${{ runner.os }}-venv-${{ hashFiles('**/requirements.txt') }}
+
       - name: Write Version File
         run: echo "${{ github.ref_name }}" > .version
 
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
           python -m venv .venv
-          .venv\Scripts\activate
+          .\.venv\Scripts\Activate.ps1
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-        shell: powershell
 
       - name: Install dependencies (Linux/macOS)
         if: runner.os != 'Windows'
+        shell: bash
         run: |
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-        shell: bash
 
       - name: Run build script (Windows)
         if: runner.os == 'Windows'
-        run: .venv\Scripts\python.exe build.py --ci --clean
         shell: pwsh
+        run: .\.venv\Scripts\python.exe build.py --ci
 
       - name: Run build script (Linux/macOS)
         if: runner.os != 'Windows'
+        shell: bash
         run: |
           source .venv/bin/activate
-          python build.py --ci --clean
-        shell: bash
+          python build.py --ci
 
-      # Test the main executable (the installer test could be added similarly if desired)
       - name: Test built main executable (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $EXPECTED_VERSION = "${{ github.ref_name }}"
+          $EXPECTED_VERSION = Get-Content .version
           Write-Host "Expected version is $EXPECTED_VERSION"
-          $rawOutput = & .\dist\devt-windows.exe self version
-          $OUTPUT = $rawOutput -join "`n"
+          $OUTPUT = & .\dist\devt-windows.exe self version
           Write-Host "Output is $OUTPUT"
-          if (-not $OUTPUT.Contains($EXPECTED_VERSION)) {
+          if ($OUTPUT -notmatch $EXPECTED_VERSION) {
             Write-Error "Version mismatch: expected '$EXPECTED_VERSION' to be in output"
             exit 1
           }
 
       - name: Test built main executable (Linux/macOS)
         if: runner.os != 'Windows'
+        shell: bash
         run: |
           EXPECTED_VERSION=$(cat .version)
           echo "Expected version is $EXPECTED_VERSION"
-          # Determine the expected filename based on OS
           if [ "$(uname)" = "Darwin" ]; then
             exe_name="devt-macos"
           else
@@ -89,7 +92,6 @@ jobs:
             echo "Version mismatch: expected '$EXPECTED_VERSION' to be in output"
             exit 1
           fi
-        shell: bash
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

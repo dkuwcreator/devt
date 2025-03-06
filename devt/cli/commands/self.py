@@ -1,145 +1,80 @@
+#!/usr/bin/env python3
+"""
+DevT Self-Management Commands
+
+Provides version display, installation directory information, and upgrade functionality.
+It checks for updates on GitHub and triggers an external installer for upgrades.
+"""
+
 import sys
 import subprocess
 import logging
-import ssl
-import json
-from pathlib import Path
-import os
-
-from packaging import version
-import typer
-import truststore
-import urllib3
 import platform
+from pathlib import Path
 
+import typer
+
+from packaging import version  # used for comparing versions
 from devt import __version__
 from devt.config_manager import APP_NAME
 
-# SSL and HTTP Manager Setup
-ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-http = urllib3.PoolManager(ssl_context=ctx)
+# Import common functions to avoid duplication.
+from devt.common import get_os_suffix, resolve_version, download_file
 
-# Logging and Typer setup
 logger = logging.getLogger(__name__)
 self_app = typer.Typer(help="DevT self management commands")
 
-def get_os_suffix() -> str:
-    """Return the OS-specific suffix for executables."""
-    os_name = platform.system()
-    if os_name == "Windows":
-        return "windows.exe"
-    elif os_name == "Linux":
-        return "linux"
-    elif os_name == "Darwin":
-        return "macos"
-    else:
-        return os_name.lower()
-
-# Constants
-GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
+# Constants for GitHub API timeouts.
 TIMEOUT_CONNECT: float = 10.0
 TIMEOUT_READ: float = 10.0
 TIMEOUT_DOWNLOAD_READ: float = 30.0
-TIMEOUT_PROCESS: int = 60
-
-def fetch_json(url: str) -> dict:
-    """Fetch JSON data from the given URL using urllib3."""
-    try:
-        response = http.request(
-            "GET",
-            url,
-            timeout=urllib3.Timeout(connect=TIMEOUT_CONNECT, read=TIMEOUT_READ),
-        )
-        if response.status != 200:
-            logger.error("Non-200 response from '%s': %s", url, response.status)
-            return {}
-        return json.loads(response.data.decode("utf-8"))
-    except Exception as err:
-        logger.error("Error fetching URL '%s': %s", url, err)
-        return {}
-
-def get_latest_version(version_str: str = "latest") -> str:
-    """
-    Retrieve the version from GitHub or validate a provided version.
-
-    If version_str is 'latest', query GitHub for the latest tag.
-    Otherwise, check if the given version exists online.
-    """
-    if version_str.lower() == "latest":
-        data = fetch_json(GITHUB_LATEST_RELEASE_URL)
-        latest = data.get("tag_name", "")
-        logger.info("Latest version retrieved: %s", latest)
-        return latest
-
-    try:
-        version.parse(version_str)
-    except Exception:
-        logger.error("Invalid version string provided: %s", version_str)
-        return ""
-
-    release_url = f"https://api.github.com/repos/dkuwcreator/devt/releases/tags/{version_str}"
-    data = fetch_json(release_url)
-    if data:
-        logger.info("Version %s exists online.", version_str)
-        return version_str
-    else:
-        logger.error("Version %s does not exist online.", version_str)
-        return ""
 
 def notify_upgrade_if_available(current_version: str, latest_version: str) -> None:
-    """Notify the user if an upgrade is available."""
+    """
+    Notify the user if an upgrade is available.
+    """
     logger.info("Current version: %s, Latest version: %s", current_version, latest_version)
-    if latest_version and version.parse(latest_version) > version.parse(current_version):
-        typer.echo(
-            f"Upgrade available: {latest_version} (installed: {current_version})\n"
-            f"Run '{APP_NAME} self upgrade' to update."
-        )
-    else:
-        typer.echo("You have the latest version.")
-
-def download_file(download_url: str, save_path: Path) -> bool:
-    """Download a file from a given URL using urllib3."""
-    typer.echo(f"Downloading {save_path.name} from GitHub...")
-    logger.info("Starting download from %s", download_url)
     try:
-        response = http.request(
-            "GET",
-            download_url,
-            timeout=urllib3.Timeout(connect=TIMEOUT_CONNECT, read=TIMEOUT_DOWNLOAD_READ),
-        )
-        if response.status != 200:
-            raise Exception(f"HTTP Error {response.status}")
-        save_path.write_bytes(response.data)
-        logger.info("Downloaded file saved to %s", save_path)
-        return True
+        if latest_version and version.parse(latest_version) > version.parse(current_version):
+            typer.echo(
+                f"Upgrade available: {latest_version} (installed: {current_version})\n"
+                f"Run '{APP_NAME} self upgrade' to update."
+            )
+        else:
+            typer.echo("You have the latest version.")
     except Exception as err:
-        logger.error("Error downloading %s: %s", save_path.name, err)
-        typer.echo(f"Error downloading {save_path.name}: {err}")
-        return False
+        logger.error("Error comparing versions: %s", err)
+        typer.echo("Error checking version compatibility.")
+
 
 def get_updater_download_url(version_str: str = "latest") -> str:
     """
     Build the updater download URL dynamically.
-    If version_str is 'latest', the function queries GitHub for the latest tag.
+    
     The URL format is:
       https://github.com/dkuwcreator/devt/releases/download/<version>/devt-installer-<os_suffix>
     """
-    version_str = get_latest_version(version_str)
+    resolved_version = resolve_version(version_str)
     os_suffix = get_os_suffix()
-    url = f"https://github.com/dkuwcreator/devt/releases/download/{version_str}/devt-installer-{os_suffix}"
+    url = f"https://github.com/dkuwcreator/devt/releases/download/{resolved_version}/devt-installer-{os_suffix}"
     logger.info("Updater download URL: %s", url)
     return url
 
+
 def get_installer_filename() -> str:
-    """Determine the local filename for the installer executable based on platform."""
-    os_name = platform.system()
-    if os_name == "Windows":
-        return f"{APP_NAME}-installer.exe"
-    else:
-        return f"{APP_NAME}-installer"
+    """
+    Determine the local filename for the installer executable based on the platform.
+    """
+    return f"{APP_NAME}-installer.exe" if platform.system() == "Windows" else f"{APP_NAME}-installer"
+
 
 def get_install_dir() -> Path:
-    """Return the installation directory of the executable or script."""
+    """
+    Return the installation directory of the executable or script.
+    
+    If the app is running as a frozen binary, the directory is determined from sys.executable.
+    Otherwise, it uses the location of this file.
+    """
     install_dir = (
         Path(sys.executable).parent
         if getattr(sys, "frozen", False)
@@ -148,10 +83,13 @@ def get_install_dir() -> Path:
     logger.info("Installation directory: %s", install_dir)
     return install_dir
 
+
 def check_updates() -> None:
-    """Check for updates and notify the user."""
+    """
+    Check for updates and notify the user accordingly.
+    """
     typer.echo("")
-    latest_version = get_latest_version()
+    latest_version = resolve_version("latest")
     if __version__ == "dev":
         typer.echo("Running in development mode. Upgrade checks are disabled.")
         if latest_version:
@@ -161,24 +99,33 @@ def check_updates() -> None:
     else:
         typer.echo("Could not determine the latest version.")
 
+
 @self_app.command("version")
 def self_version() -> None:
-    """Display the current DevT version and perform an update check."""
+    """
+    Display the current DevT version and perform an update check.
+    """
     typer.echo(f"DevT {__version__}")
     logger.info("Version information requested.")
     check_updates()
 
+
 @self_app.command("show")
 def self_show() -> None:
-    """Display the installation directory and DevT version, then perform an update check."""
+    """
+    Display the installation directory and DevT version, then perform an update check.
+    """
     install_dir = get_install_dir()
     typer.echo(f"DevT {__version__}")
     typer.echo(f"Installation directory: {install_dir}")
     check_updates()
 
+
 @self_app.command("upgrade")
 def self_upgrade() -> None:
-    """Trigger the upgrade process using the external installer."""
+    """
+    Trigger the upgrade process using the external installer.
+    """
     if __version__ == "dev":
         typer.echo("Upgrade is not available in development mode.")
         logger.info("Upgrade attempted in development mode; aborting.")
@@ -191,25 +138,23 @@ def self_upgrade() -> None:
     install_dir.mkdir(exist_ok=True)
     logger.info("Ensured installation directory exists: %s", install_dir)
 
-    # Build the updater download URL dynamically.
     download_url = get_updater_download_url("latest")
+    installer_filename = get_installer_filename()
+    installer_path = install_dir / installer_filename
 
-    installer_exe_filename = get_installer_filename()
-    installer_exe_path = install_dir / installer_exe_filename
-
-    # Download the installer.
-    if not download_file(download_url, installer_exe_path):
+    if not download_file(download_url, installer_path, timeout_connect=TIMEOUT_CONNECT, timeout_read=TIMEOUT_DOWNLOAD_READ):
         logger.error("Updater download failed. Aborting upgrade.")
         typer.echo("Updater download failed. Aborting upgrade.")
         return
 
-    typer.echo(f"Updater downloaded to {installer_exe_path}")
+    typer.echo(f"Updater downloaded to {installer_path}")
     logger.info("Updater downloaded. Launching installer...")
 
     try:
-        subprocess.Popen([str(installer_exe_path), str(install_dir)], close_fds=True)
+        subprocess.Popen([str(installer_path), str(install_dir)], close_fds=True)
         typer.echo("Updater started. Closing DevT...")
-        sys.exit(0)  # Exit DevT to allow the installer to replace it safely
+        sys.exit(0)  # Exit to allow the installer to update the application safely.
     except Exception as e:
         logger.error("Failed to launch installer: %s", e)
         typer.echo("Failed to launch installer.")
+
