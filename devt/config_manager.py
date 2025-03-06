@@ -126,8 +126,8 @@ def setup_environment() -> None:
     create_directories()
     os.environ[ENV_USER_APP_DIR] = str(USER_APP_DIR)
     os.environ[ENV_WORKSPACE_DIR] = str(WORKSPACE_APP_DIR)
-    set_user_environment_var(ENV_USER_APP_DIR, str(USER_APP_DIR))
-    set_user_environment_var(ENV_WORKSPACE_DIR, str(WORKSPACE_APP_DIR))
+    # set_user_environment_var(ENV_USER_APP_DIR, str(USER_APP_DIR))
+    # set_user_environment_var(ENV_WORKSPACE_DIR, str(WORKSPACE_APP_DIR))
     initialize_user_config()
     logger.debug("Environment variables set successfully.")
 
