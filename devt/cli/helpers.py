@@ -70,6 +70,7 @@ def setup_app_context(
     }
     effective_config = get_effective_config(runtime_config)
     configure_global_logging(effective_config)
+    logger.info("Effective configuration: %s", effective_config)
 
     # Determine registry directory based on effective scope.
     effective_scope: str = effective_config["scope"]
@@ -92,8 +93,8 @@ def setup_app_context(
     )
 
     # Create unified managers.
-    registry: RegistryManager = RegistryManager(registry_dir)
-    pkg_manager: PackageManager = PackageManager(registry_dir)
+    registry: RegistryManager = RegistryManager(effective_scope)
+    pkg_manager: PackageManager = PackageManager(effective_scope)
 
     # Store managers and configuration in the Typer context.
     ctx.obj = {
@@ -109,22 +110,6 @@ def setup_app_context(
         effective_scope,
         registry_dir,
     )
-
-
-def get_managers(
-    ctx: typer.Context,
-) -> Tuple[RegistryManager, PackageManager, Path, str]:
-    """
-    Retrieves the unified managers and configuration from the Typer context.
-
-    Returns:
-        A tuple of (registry, pkg_manager, registry_dir, scope).
-    """
-    scope: str = ctx.obj.get("scope")
-    registry_dir: Path = ctx.obj.get("registry_dir")
-    registry: RegistryManager = ctx.obj.get("registry")
-    pkg_manager: PackageManager = ctx.obj.get("pkg_manager")
-    return registry, pkg_manager, registry_dir, scope
 
 
 def get_scopes_to_query(scope: Optional[str] = None) -> Dict[str, RegistryManager]:

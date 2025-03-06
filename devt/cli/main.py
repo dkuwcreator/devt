@@ -16,7 +16,6 @@ from devt.cli.commands.workspace import workspace_app
 from devt.cli.commands.self import self_app
 from devt.cli.commands.execute import execute_app
 from devt.cli.sync_service import SyncManager
-from devt.config_manager import SCOPE_TO_DIR
 
 logger = logging.getLogger(__name__)
 app = typer.Typer(help="DevT: A CLI tool for managing development tool packages.")
@@ -58,11 +57,8 @@ def main(
         logger.info("Auto-sync option is enabled.")
         if is_git_installed():
             if ctx.invoked_subcommand != "repo":
-                logger.info("Git is installed and subcommand is not 'repo'; starting auto-sync.")
-                for scope, reg_dir in SCOPE_TO_DIR.items:
-                    print(scope, reg_dir)
-                    sync_manager = SyncManager(reg_dir, scope)
-                    sync_manager.start_background_sync()
+                sync_manager = SyncManager.from_context(ctx)
+                sync_manager.start_background_sync()
             else:
                 logger.info("Subcommand is 'repo'; skipping auto-sync.")
         else:

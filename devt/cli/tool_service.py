@@ -8,10 +8,9 @@ from devt.cli.helpers import (
     get_scopes_to_query,
     get_package_from_registries,
 )
-from devt.config_manager import USER_REGISTRY_DIR, WORKSPACE_REGISTRY_DIR
+from devt.config_manager import SCOPE_TO_REGISTRY_DIR, USER_REGISTRY_DIR, WORKSPACE_REGISTRY_DIR
 from devt.registry.manager import RegistryManager
 from devt.package.manager import PackageManager
-from devt.repo_manager import RepoManager
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +22,15 @@ class ToolService:
 
     @classmethod
     def from_context(cls, ctx: typer.Context) -> "ToolService":
-        registry_dir = ctx.obj.get("registry_dir")
         scope = ctx.obj.get("scope")
-        return cls(registry_dir, scope)
+        return cls(scope)
 
     def __init__(
         self,
-        registry_dir: Path,
         scope: str,
     ) -> None:
-        self.registry = RegistryManager(registry_dir)
-        self.repo_manager = RepoManager(registry_dir)
-        self.pkg_manager = PackageManager(registry_dir)
-        self.registry_dir = registry_dir
+        self.registry = RegistryManager(scope)
+        self.pkg_manager = PackageManager(scope)
         self.scope = scope
 
     # -------------------------------------------
@@ -176,10 +171,8 @@ class ToolService:
         """
         sync_counts = {}
         scopes = get_scopes_to_query(self.scope)
-        for sc, reg in scopes.items():
-            pkg_manager = PackageManager(
-                USER_REGISTRY_DIR if sc == "user" else WORKSPACE_REGISTRY_DIR
-            )
+        for scope, reg in scopes.items():
+            pkg_manager = PackageManager(scope)
             count = 0
             active_packages = reg.package_registry.list_packages(active=True)
             for pkg in active_packages:
@@ -189,11 +182,11 @@ class ToolService:
                     reg.register_package(new_pkg.to_dict(), force=True)
                     count += 1
                     logger.info(
-                        "Synced tool '%s' in %s registry.", pkg.get("command"), sc
+                        "Synced tool '%s' in %s registry.", pkg.get("command"), scope
                     )
                 except Exception as e:
                     logger.exception("Error syncing tool at %s: %s", pkg_location, e)
                     continue
-            sync_counts[sc] = count
-            logger.info("Completed syncing %d tools in %s registry.", count, sc)
+            sync_counts[scope] = count
+            logger.info("Completed syncing %d tools in %s registry.", count, scope)
         return sync_counts

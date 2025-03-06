@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from git import Repo
+from devt.config_manager import USER_REGISTRY_DIR
 from devt.utils import on_exc  # Requires GitPython: pip install GitPython
 
 logger = logging.getLogger(__name__)
@@ -25,14 +26,14 @@ class RepoManager:
     Repositories are stored in a subfolder named 'repos' within the provided base directory.
     """
 
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(self) -> None:
         """
         Initialize the RepoManager with a base directory.
 
         Args:
             base_dir (Path): The base directory where the 'repos' folder will be created.
         """
-        self.base_dir: Path = base_dir.resolve()
+        self.base_dir: Path = USER_REGISTRY_DIR
         self.repos_dir: Path = self.base_dir / "repos"
         self.repos_dir.mkdir(parents=True, exist_ok=True)
         logger.info(

@@ -39,8 +39,7 @@ def main(ctx: typer.Context) -> None:
     """
     check_git_and_exit()
     ctx.obj = ctx.obj or {}
-    registry_dir = ctx.obj.get("registry_dir")
-    ctx.obj["repo_manager"] = RepoManager(registry_dir)
+    ctx.obj["repo_manager"] = RepoManager()
     ctx.obj["tool_manager"] = ToolService.from_context(ctx)
     ctx.obj["sync_manager"] = SyncManager.from_context(ctx)
 
@@ -68,7 +67,7 @@ def repo_add(
     """
     registry_dir = ctx.obj.get("registry_dir")
     registry = RegistryManager(registry_dir)
-    repo_manager = RepoManager(registry_dir)
+    repo_manager = RepoManager()
     repo_url = source
     logger.info("Adding repository: %s", repo_url)
 
@@ -108,7 +107,7 @@ def repo_remove(
     """
     registry_dir = ctx.obj.get("registry_dir")
     registry = RegistryManager(registry_dir)
-    repo_manager = RepoManager(registry_dir)
+    repo_manager = RepoManager()
     repo = registry.repository_registry.get_repo_by_name(name=repo_name)
 
     if not repo:

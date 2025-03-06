@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
+from devt.config_manager import SCOPE_TO_REGISTRY_DIR
 from devt.package.builder import ToolPackage
 from devt.registry.models import Base, ScriptModel, PackageModel, RepositoryModel
 
@@ -33,12 +34,12 @@ def handle_errors(func):
     return wrapper
 
 
-def create_db_engine(registry_path: Path) -> Any:
+def create_db_engine(registry_dir: Path) -> Any:
     """
     Creates and initializes the database engine.
     """
-    registry_path.mkdir(parents=True, exist_ok=True)
-    db_file = (registry_path / "registry.db").resolve()
+    registry_dir.mkdir(parents=True, exist_ok=True)
+    db_file = (registry_dir / "registry.db").resolve()
     db_uri = f"sqlite:///{db_file}"
     engine = create_engine(db_uri, echo=False, future=True)
     Base.metadata.create_all(engine)
@@ -361,8 +362,9 @@ class RegistryManager:
     """
     Manages all registry-related operations.
     """
-    def __init__(self, registry_path: Path) -> None:
-        self.engine = create_db_engine(registry_path)
+    def __init__(self, scope: str) -> None:
+        registry_dir = SCOPE_TO_REGISTRY_DIR[scope]
+        self.engine = create_db_engine(registry_dir)
         self.script_registry = ScriptRegistry(self.engine)
         self.package_registry = PackageRegistry(self.engine)
         self.repository_registry = RepositoryRegistry(self.engine)

@@ -46,9 +46,9 @@ TEMP_DIR = os.environ.get("TEMP", "/tmp")
 ENV_WORKSPACE_DIR = f"{APP_NAME.upper()}_WORKSPACE_APP_DIR"
 ENV_TOOL_DIR = f"{APP_NAME.upper()}_TOOL_DIR"
 
-SCOPE_TO_DIR = {
-    "user": USER_APP_DIR,
-    "workspace": WORKSPACE_APP_DIR,
+SCOPE_TO_REGISTRY_DIR = {
+    "user": USER_REGISTRY_DIR,
+    "workspace": WORKSPACE_REGISTRY_DIR,
 }
 
 
@@ -57,16 +57,17 @@ def set_user_environment_var(name: str, value: str) -> None:
     Persists a user environment variable across sessions in a cross-platform way.
     """
     system = platform.system()
-    
+
     try:
         if system == "Windows":
             import winreg
+
             with winreg.OpenKey(
                 winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
             ) as key:
                 winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
             logger.debug("Set user environment variable on Windows: %s=%s", name, value)
-        
+
         elif system in ["Linux", "Darwin"]:  # Darwin is macOS
             bashrc_path = os.path.expanduser("~/.bashrc")
             zshrc_path = os.path.expanduser("~/.zshrc")
@@ -83,9 +84,13 @@ def set_user_environment_var(name: str, value: str) -> None:
             # Also set it for the current session
             os.environ[name] = value
 
-            logger.debug("Set user environment variable on Linux/macOS: %s=%s", name, value)
+            logger.debug(
+                "Set user environment variable on Linux/macOS: %s=%s", name, value
+            )
         else:
-            logger.warning("Unsupported OS: %s. Cannot persist environment variable.", system)
+            logger.warning(
+                "Unsupported OS: %s. Cannot persist environment variable.", system
+            )
 
     except Exception as e:
         logger.error("Failed to set user environment variable %s: %s", name, e)
@@ -158,9 +163,11 @@ def get_effective_config(runtime_options: dict) -> dict:
             "No workspace manifest found; using empty workspace configuration."
         )
 
-    effective_config = merge_configs(user_config, workspace_config, runtime_options)
-    logger.info("Effective configuration computed.")
-    return effective_config
+    logger.debug("Runtime options: %s", runtime_options)
+    logger.debug("User configuration: %s", user_config)
+    logger.debug("Workspace configuration: %s", workspace_config)
+
+    return merge_configs(user_config, workspace_config, runtime_options)
 
 
 def configure_global_logging(effective_config: dict) -> None:

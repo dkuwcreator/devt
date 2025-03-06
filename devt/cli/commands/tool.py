@@ -4,7 +4,6 @@ from typing import Optional
 import typer
 import logging
 
-from devt.cli.helpers import get_managers
 from devt.config_manager import APP_NAME
 from devt.utils import print_table
 
@@ -107,8 +106,8 @@ def tool_list(
     """
     logger.info("Listing tools with filters: command=%s, name=%s, description=%s, location=%s, group=%s, active=%s",
                 command, name, description, location, group, active)
-    registry, _, _, _ = get_managers(ctx)
-    tools = registry.package_registry.list_packages(
+    service = ToolService.from_context(ctx)
+    tools = service.registry.package_registry.list_packages(
         command=command,
         name=name,
         description=description,
@@ -145,8 +144,8 @@ def tool_info(
     Displays detailed information and available scripts for the specified tool.
     """
     logger.info("Fetching info for tool: %s", command)
-    registry, _, _, _ = get_managers(ctx)
-    pkg = registry.retrieve_package(command)
+    service = ToolService.from_context(ctx)
+    pkg = service.registry.retrieve_package(command)
     if pkg:
         print_tool_details(pkg)
         typer.echo("\nAvailable Scripts:")

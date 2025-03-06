@@ -5,6 +5,7 @@ import zipfile
 from pathlib import Path
 from typing import List
 
+from devt.config_manager import SCOPE_TO_REGISTRY_DIR
 from devt.utils import find_file_type, load_manifest, merge_configs, save_manifest
 from .builder import PackageBuilder, ToolPackage
 
@@ -15,11 +16,12 @@ class PackageManager:
     Handles file system operations for packages, including importing, moving,
     copying, deleting, and exporting package directories.
     """
-    def __init__(self, tools_dir: Path) -> None:
+    def __init__(self, scope: str) -> None:
         """
         Initialize the PackageManager with a directory for storing packages.
         """
-        self.tools_dir: Path = tools_dir / "tools"
+        registry_dir = SCOPE_TO_REGISTRY_DIR[scope]
+        self.tools_dir: Path = registry_dir / "tools"
         self.tools_dir.mkdir(parents=True, exist_ok=True)
         logger.debug("Initialized PackageManager. Tools directory set to: %s", self.tools_dir)
 
