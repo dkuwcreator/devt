@@ -71,15 +71,16 @@ def set_user_environment_var(name: str, value: str) -> None:
         elif system in ["Linux", "Darwin"]:  # Darwin is macOS
             bashrc_path = os.path.expanduser("~/.bashrc")
             zshrc_path = os.path.expanduser("~/.zshrc")
-
-            # Export variable in the shell profile
             export_command = f'export {name}="{value}"\n'
 
-            # Add it to ~/.bashrc and ~/.zshrc to persist it
+            # Export variable in the shell profile, but only if not already present
             for rc_path in [bashrc_path, zshrc_path]:
                 if os.path.exists(rc_path):
-                    with open(rc_path, "a") as f:
-                        f.write(export_command)
+                    with open(rc_path, "r") as f:
+                        content = f.read()
+                    if export_command.strip() not in content:
+                        with open(rc_path, "a") as f:
+                            f.write(export_command)
 
             # Also set it for the current session
             os.environ[name] = value
