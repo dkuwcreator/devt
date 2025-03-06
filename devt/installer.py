@@ -50,24 +50,6 @@ def download_executable(url: str, destination: Path) -> bool:
     return True
 
 
-def replace_executable(new_exe: Path, current_exe: Path, wait_time: int = 3) -> None:
-    """
-    Backup any existing executable and replace it with the new download.
-    """
-    logger.info("Waiting %d seconds for DevT to close...", wait_time)
-    time.sleep(wait_time)  # Pause to allow any running instance to close.
-    backup = current_exe.with_suffix(".old")
-    try:
-        if current_exe.exists():
-            shutil.move(str(current_exe), str(backup))
-            logger.info("Backed up old executable to %s", backup)
-        shutil.move(str(new_exe), str(current_exe))
-        logger.info("Replaced executable at %s", current_exe)
-    except Exception as err:
-        logger.error("Error replacing executable: %s", err)
-        sys.exit(1)
-
-
 def restart_application(executable: Path) -> None:
     """
     Restart the installed application (e.g. to verify the new version).
@@ -89,16 +71,10 @@ def set_env_var(name: str, value: str) -> None:
     system = platform.system()
     if system == "Windows":
         try:
-            import winreg, ctypes
+            import winreg
             reg_type = winreg.REG_EXPAND_SZ if name.lower() == "path" else winreg.REG_SZ
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as key:
                 winreg.SetValueEx(key, name, 0, reg_type, value)
-            HWND_BROADCAST = 0xFFFF
-            WM_SETTINGCHANGE = 0x001A
-            SMTO_ABORTIFHUNG = 0x0002
-            ctypes.windll.user32.SendMessageTimeoutW(
-                HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment", SMTO_ABORTIFHUNG, 5000, None
-            )
             logger.info("Set environment variable: %s = %s", name, value)
         except Exception as e:
             logger.error("Error setting %s on Windows: %s", name, e)
@@ -128,7 +104,7 @@ def add_executable_path(exe_path: str) -> None:
     system = platform.system()
     if system == "Windows":
         try:
-            import winreg, ctypes
+            import winreg
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ) as key:
                 try:
                     current_path, _ = winreg.QueryValueEx(key, "Path")
@@ -144,12 +120,6 @@ def add_executable_path(exe_path: str) -> None:
                 new_path = ";".join(path_entries)
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as key:
                     winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
-                HWND_BROADCAST = 0xFFFF
-                WM_SETTINGCHANGE = 0x001A
-                SMTO_ABORTIFHUNG = 0x0002
-                ctypes.windll.user32.SendMessageTimeoutW(
-                    HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment", SMTO_ABORTIFHUNG, 5000, None
-                )
                 logger.info("Added %s to PATH", exe_path)
         except Exception as e:
             logger.error("Error updating PATH on Windows: %s", e)
@@ -178,7 +148,6 @@ def install(
     log_level: str = typer.Option("WARNING", "--log-level", help="Set logging level (default: WARNING)"),
     version: str = typer.Option("latest", "--version", help="DevT version to install (default: latest)"),
     no_restart: bool = typer.Option(False, "--no-restart", help="Do not automatically restart DevT after installation"),
-    wait_time: int = typer.Option(3, "--wait", help="Seconds to wait before replacing the executable (default: 3)")
 ):
     """
     Install DevT to the specified directory.
@@ -202,13 +171,9 @@ def install(
             install_dir = Path.home() / "devt"
     
     # Determine paths for the executable.
-    system = platform.system()
-    if system == "Windows":
-        current_executable = install_dir / "devt.exe"
-        new_executable = install_dir / "devt_new.exe"
-    else:
-        current_executable = install_dir / "devt"
-        new_executable = install_dir / "devt_new"
+    # Set the executable name based on the operating system.
+    executable_name = "devt.exe" if platform.system() == "Windows" else "devt"
+    current_executable = install_dir / executable_name
     
     # Build download URL.
     download_url = get_download_url(version)
@@ -219,13 +184,10 @@ def install(
     typer.echo(f"Installing DevT to {install_dir}...")
     
     # Download the executable.
-    if not download_executable(download_url, new_executable):
+    if not download_executable(download_url, current_executable):
         logger.error("Download failed. Exiting.")
         sys.exit(1)
-    
-    # Replace the old executable.
-    replace_executable(new_executable, current_executable, wait_time=wait_time)
-    
+        
     # Add the installation directory to the user's PATH.
     add_executable_path(str(install_dir))
     
