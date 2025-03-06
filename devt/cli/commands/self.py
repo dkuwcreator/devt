@@ -15,13 +15,6 @@ import platform
 from devt import __version__
 from devt.config_manager import APP_NAME
 
-# Constants
-GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
-TIMEOUT_CONNECT = 10.0
-TIMEOUT_READ = 10.0
-TIMEOUT_DOWNLOAD_READ = 30.0
-TIMEOUT_PROCESS = 60
-
 # SSL and HTTP Manager Setup
 ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 http = urllib3.PoolManager(ssl_context=ctx)
@@ -42,20 +35,55 @@ def get_os_suffix() -> str:
     else:
         return os_name.lower()
 
-def get_latest_version() -> str:
-    """Retrieve the latest version available online from GitHub."""
+# Constants
+GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
+TIMEOUT_CONNECT: float = 10.0
+TIMEOUT_READ: float = 10.0
+TIMEOUT_DOWNLOAD_READ: float = 30.0
+TIMEOUT_PROCESS: int = 60
+
+def fetch_json(url: str) -> dict:
+    """Fetch JSON data from the given URL using urllib3."""
     try:
         response = http.request(
             "GET",
-            GITHUB_LATEST_RELEASE_URL,
+            url,
             timeout=urllib3.Timeout(connect=TIMEOUT_CONNECT, read=TIMEOUT_READ),
         )
-        data = json.loads(response.data.decode("utf-8"))
+        if response.status != 200:
+            logger.error("Non-200 response from '%s': %s", url, response.status)
+            return {}
+        return json.loads(response.data.decode("utf-8"))
+    except Exception as err:
+        logger.error("Error fetching URL '%s': %s", url, err)
+        return {}
+
+def get_latest_version(version_str: str = "latest") -> str:
+    """
+    Retrieve the version from GitHub or validate a provided version.
+
+    If version_str is 'latest', query GitHub for the latest tag.
+    Otherwise, check if the given version exists online.
+    """
+    if version_str.lower() == "latest":
+        data = fetch_json(GITHUB_LATEST_RELEASE_URL)
         latest = data.get("tag_name", "")
         logger.info("Latest version retrieved: %s", latest)
         return latest
-    except Exception as err:
-        logger.error("Error retrieving latest version: %s", err)
+
+    try:
+        version.parse(version_str)
+    except Exception:
+        logger.error("Invalid version string provided: %s", version_str)
+        return ""
+
+    release_url = f"https://api.github.com/repos/dkuwcreator/devt/releases/tags/{version_str}"
+    data = fetch_json(release_url)
+    if data:
+        logger.info("Version %s exists online.", version_str)
+        return version_str
+    else:
+        logger.error("Version %s does not exist online.", version_str)
         return ""
 
 def notify_upgrade_if_available(current_version: str, latest_version: str) -> None:
@@ -94,12 +122,11 @@ def get_updater_download_url(version_str: str = "latest") -> str:
     Build the updater download URL dynamically.
     If version_str is 'latest', the function queries GitHub for the latest tag.
     The URL format is:
-      https://github.com/dkuwcreator/devt/releases/download/<version>/devt_installer-<version>-<os_suffix>
+      https://github.com/dkuwcreator/devt/releases/download/<version>/devt-installer-<os_suffix>
     """
-    if version_str == "latest":
-        version_str = get_latest_version()
+    version_str = get_latest_version(version_str)
     os_suffix = get_os_suffix()
-    url = f"https://github.com/dkuwcreator/devt/releases/download/{version_str}/devt_installer-{version_str}-{os_suffix}"
+    url = f"https://github.com/dkuwcreator/devt/releases/download/{version_str}/devt-installer-{os_suffix}"
     logger.info("Updater download URL: %s", url)
     return url
 
@@ -107,9 +134,9 @@ def get_installer_filename() -> str:
     """Determine the local filename for the installer executable based on platform."""
     os_name = platform.system()
     if os_name == "Windows":
-        return f"{APP_NAME}_installer.exe"
+        return f"{APP_NAME}-installer.exe"
     else:
-        return f"{APP_NAME}_installer"
+        return f"{APP_NAME}-installer"
 
 def get_install_dir() -> Path:
     """Return the installation directory of the executable or script."""

@@ -64,7 +64,7 @@ jobs:
         run: |
           $EXPECTED_VERSION = "${{ github.ref_name }}"
           Write-Host "Expected version is $EXPECTED_VERSION"
-          $rawOutput = & .\dist\devt-${{ github.ref_name }}-windows.exe self version
+          $rawOutput = & .\dist\devt-windows.exe self version
           $OUTPUT = $rawOutput -join "`n"
           Write-Host "Output is $OUTPUT"
           if (-not $OUTPUT.Contains($EXPECTED_VERSION)) {
@@ -79,9 +79,9 @@ jobs:
           echo "Expected version is $EXPECTED_VERSION"
           # Determine the expected filename based on OS
           if [ "$(uname)" = "Darwin" ]; then
-            exe_name="devt-${{ github.ref_name }}-macos"
+            exe_name="devt-macos"
           else
-            exe_name="devt-${{ github.ref_name }}-linux"
+            exe_name="devt-linux"
           fi
           OUTPUT=$(./dist/$exe_name self version)
           echo "Output is $OUTPUT"
@@ -128,11 +128,11 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            dist-windows/devt-${{ github.ref_name }}-windows.exe
-            dist-windows/devt_installer-${{ github.ref_name }}-windows.exe
-            dist-linux/devt-${{ github.ref_name }}-linux
-            dist-linux/devt_installer-${{ github.ref_name }}-linux
-            dist-macos/devt-${{ github.ref_name }}-macos
-            dist-macos/devt_installer-${{ github.ref_name }}-macos
+            dist-windows/devt-windows.exe
+            dist-windows/devt-installer-windows.exe
+            dist-linux/devt-linux
+            dist-linux/devt-installer-linux
+            dist-macos/devt-macos
+            dist-macos/devt-installer-macos
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

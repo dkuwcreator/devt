@@ -176,16 +176,15 @@ def build(
         raise e
 
     # Rename the main executable using the pattern: devt-v0.0.54-<os>[.exe]
-    version = get_version()
     system = platform.system()
     if system == "Windows":
-        new_main_name = f"{OUTPUT_NAME}-{version}-windows.exe"
+        new_main_name = f"{OUTPUT_NAME}-windows.exe"
     elif system == "Linux":
-        new_main_name = f"{OUTPUT_NAME}-{version}-linux"
+        new_main_name = f"{OUTPUT_NAME}-linux"
     elif system == "Darwin":
-        new_main_name = f"{OUTPUT_NAME}-{version}-macos"
+        new_main_name = f"{OUTPUT_NAME}-macos"
     else:
-        new_main_name = f"{OUTPUT_NAME}-{version}-{system.lower()}"
+        new_main_name = f"{OUTPUT_NAME}-{system.lower()}"
 
     # Determine the original built executable file name
     orig_main = DIST_DIR / (OUTPUT_NAME + (".exe" if system == "Windows" else ""))
@@ -225,13 +224,13 @@ def build(
 
         # Rename the installer executable similarly
         if system == "Windows":
-            new_inst_name = f"{OUTPUT_NAME}_installer-{version}-windows.exe"
+            new_inst_name = f"{OUTPUT_NAME}-installer-windows.exe"
         elif system == "Linux":
-            new_inst_name = f"{OUTPUT_NAME}_installer-{version}-linux"
+            new_inst_name = f"{OUTPUT_NAME}-installer-linux"
         elif system == "Darwin":
-            new_inst_name = f"{OUTPUT_NAME}_installer-{version}-macos"
+            new_inst_name = f"{OUTPUT_NAME}-installer-macos"
         else:
-            new_inst_name = f"{OUTPUT_NAME}_installer-{version}-{system.lower()}"
+            new_inst_name = f"{OUTPUT_NAME}-installer-{system.lower()}"
 
         orig_inst = DIST_DIR / (f"{OUTPUT_NAME}_installer" + (".exe" if system == "Windows" else ""))
         new_inst = DIST_DIR / new_inst_name

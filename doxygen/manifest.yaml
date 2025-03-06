@@ -1,0 +1,19 @@
+name: Doxygen
+description: "Doxygen is a documentation generator tool for various programming languages."
+command: doxygen
+dependencies:
+    python: ">=3.6.0"
+    pip: ">=21.0.1"
+
+scripts:
+    generate:
+        env:
+            DOXYGEN_OUTPUT_DIRECTORY: "docs"
+            DOXYGEN_INPUT: "src"
+        posix: scripts/generate_docs.sh
+        windows: scripts/generate_docs.ps1
+    install: pip install doxygen
+    uninstall: pip uninstall doxygen
+    upgrade: pip install doxygen --upgrade
+    version: doxygen --version
+    test: doxygen --version
