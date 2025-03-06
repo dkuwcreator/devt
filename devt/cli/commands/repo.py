@@ -65,8 +65,8 @@ def repo_add(
     """
     Adds a repository containing tool packages to the registry.
     """
-    registry_dir = ctx.obj.get("registry_dir")
-    registry = RegistryManager(registry_dir)
+    scope = ctx.obj.get("scope")
+    registry = RegistryManager(scope)
     repo_manager = RepoManager()
     repo_url = source
     logger.info("Adding repository: %s", repo_url)
@@ -105,8 +105,8 @@ def repo_remove(
     """
     Removes a repository and all its associated tools.
     """
-    registry_dir = ctx.obj.get("registry_dir")
-    registry = RegistryManager(registry_dir)
+    scope = ctx.obj.get("scope")
+    registry = RegistryManager(scope)
     repo_manager = RepoManager()
     repo = registry.repository_registry.get_repo_by_name(name=repo_name)
 
@@ -141,8 +141,8 @@ def repo_sync(
     """
     Synchronize repositories (either all or filtered by name).
     """
-    registry_dir = ctx.obj.get("registry_dir")
-    registry = RegistryManager(registry_dir)
+    scope = ctx.obj.get("scope")
+    registry = RegistryManager(scope)
     sync_manager = SyncManager.from_context(ctx)
     repos = registry.repository_registry.list_repositories(name=repo_name)
 
@@ -167,7 +167,8 @@ def repo_list(
     """
     Displays all registered repositories and their status.
     """
-    registry: RegistryManager = ctx.obj.get("registry")
+    scope = ctx.obj.get("scope")
+    registry = RegistryManager(scope)
     if registry is None:
         raise typer.Exit(code=1)
 
