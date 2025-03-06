@@ -66,11 +66,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $EXPECTED_VERSION = Get-Content .version
+          $EXPECTED_VERSION = "${{ github.ref_name }}"
           Write-Host "Expected version is $EXPECTED_VERSION"
-          $OUTPUT = & .\dist\devt-windows.exe self version
+          $rawOutput = & .\dist\devt-windows.exe self version
+          $OUTPUT = $rawOutput -join "`n"
           Write-Host "Output is $OUTPUT"
-          if ($OUTPUT -notmatch $EXPECTED_VERSION) {
+          if (-not $OUTPUT.Contains($EXPECTED_VERSION)) {
             Write-Error "Version mismatch: expected '$EXPECTED_VERSION' to be in output"
             exit 1
           }
@@ -79,7 +80,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          EXPECTED_VERSION=$(cat .version)
+          EXPECTED_VERSION="${{ github.ref_name }}"
           echo "Expected version is $EXPECTED_VERSION"
           if [ "$(uname)" = "Darwin" ]; then
             exe_name="devt-macos"
