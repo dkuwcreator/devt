@@ -12,6 +12,7 @@ import urllib3
 import truststore
 
 app = typer.Typer()
+logger = logging.getLogger(__name__)
 
 def get_os_suffix() -> str:
     os_name = platform.system()
@@ -37,7 +38,7 @@ http = urllib3.PoolManager(ssl_context=ctx)
 def get_latest_version() -> str:
     """Query GitHub API for the latest release tag."""
     api_url = "https://api.github.com/repos/dkuwcreator/devt/releases/latest"
-    logging.info("Fetching latest version from GitHub API...")
+    logger.info("Fetching latest version from GitHub API...")
     try:
         response = http.request(
             "GET", api_url,
@@ -49,10 +50,10 @@ def get_latest_version() -> str:
         latest_tag = data.get("tag_name")
         if not latest_tag:
             raise Exception("tag_name not found in API response")
-        logging.info("Latest version is %s", latest_tag)
+        logger.info("Latest version is %s", latest_tag)
         return latest_tag
     except Exception as err:
-        logging.error("Failed to get latest version: %s", err)
+        logger.error("Failed to get latest version: %s", err)
         # Fallback: return a constant latest URL would be an option here.
         return "latest"
 
@@ -66,7 +67,7 @@ def get_download_url(version: str) -> str:
     return f"https://github.com/dkuwcreator/devt/releases/download/{version}/devt-{version}-{OS_SUFFIX}"
 
 def download_executable(url: str, destination: Path) -> bool:
-    logging.info("Downloading DevT update from %s...", url)
+    logger.info("Downloading DevT update from %s...", url)
     try:
         response = http.request(
             "GET", url,
@@ -75,15 +76,15 @@ def download_executable(url: str, destination: Path) -> bool:
         if response.status != 200:
             raise Exception(f"HTTP Error {response.status}")
     except Exception as err:
-        logging.error("Download failed: %s", err)
+        logger.error("Download failed: %s", err)
         return False
 
     try:
         destination.write_bytes(response.data)
-        logging.info("Downloaded DevT to %s", destination)
+        logger.info("Downloaded DevT to %s", destination)
         return True
     except IOError as err:
-        logging.error("Failed to save update: %s", err)
+        logger.error("Failed to save update: %s", err)
         return False
 
 def replace_executable(new_exe: Path, current_exe: Path) -> None:
@@ -101,11 +102,13 @@ def replace_executable(new_exe: Path, current_exe: Path) -> None:
         sys.exit(1)
 
 def restart_application(executable: Path) -> None:
-    logging.info("Restarting DevT with 'self version' arguments...")
+    logger.info("Restarting DevT with 'self version' arguments...")
     try:
         subprocess.Popen([str(executable), "self", "version"])
     except Exception as err:
-        logging.error("Failed to restart DevT: %s", err)
+        logger.error("Failed to restart DevT: %s", err)
+
+
 
 @app.command()
 def install(

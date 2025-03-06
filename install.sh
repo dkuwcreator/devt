@@ -110,6 +110,7 @@ install_app() {
         exit 1
     fi
 
+    chmod +x "$EXECUTABLE_PATH"
     update_path
     echo "Installation complete."
 }

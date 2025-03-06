@@ -8,7 +8,6 @@ from devt.cli.helpers import (
     get_scopes_to_query,
     get_package_from_registries,
 )
-from devt.config_manager import SCOPE_TO_REGISTRY_DIR, USER_REGISTRY_DIR, WORKSPACE_REGISTRY_DIR
 from devt.registry.manager import RegistryManager
 from devt.package.manager import PackageManager
 
