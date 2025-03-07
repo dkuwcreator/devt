@@ -40,14 +40,13 @@ GENERATE_XML           = NO
 MARKDOWN_SUPPORT       = YES   # Enable Markdown formatting in comments (for README and docstrings)
 
 # Diagram and Graph settings (enable class, collaboration, dependency diagrams)
-HAVE_DOT               = YES   # Use Graphviz (dot) for generating diagrams
-DOT_GRAPH_MAX_NODES    = 50
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
 CLASS_DIAGRAMS         = YES
 COLLABORATION_DIAGRAMS = YES
-CALL_GRAPH             = NO    # (Could be enabled if call graphs are needed)
-CALLER_GRAPH           = NO
-INCLUDE_GRAPH          = YES   # Include dependency graphs for files/modules
+INCLUDE_GRAPH          = YES
 INCLUDED_BY_GRAPH      = YES
+DOT_GRAPH_MAX_NODES    = 50
 DOT_UML_DETAILS        = YES
 UML_LOOK               = YES
 
