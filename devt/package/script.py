@@ -1,7 +1,9 @@
+import json
 import os
 import shlex
 import subprocess
 from pathlib import Path
+import tempfile
 from typing import Any, Dict, List, Optional, Union
 import logging
 
@@ -27,6 +29,12 @@ class CommandExecutionError(Exception):
         self.stdout = stdout
         self.stderr = stderr
 
+# Path mapping for common working directories
+CWD_PATH_MAPPING = {
+    "workspace": Path.cwd(),
+    "user": Path.home(),
+    "temp": Path(tempfile.gettempdir()),
+}
 
 class Script:
     """
@@ -37,24 +45,33 @@ class Script:
         self,
         args: Union[str, List[str]],
         shell: Optional[Union[str, List[str]]] = None,
-        cwd: Union[Path, str] = Path("."),
+        cwd: Union[Path, str] = ".",
         env: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> None:
         self.args = args
         self.shell = shell
-        self.cwd = Path.cwd() if cwd == "workspace" else Path(cwd) if not isinstance(cwd, Path) else cwd
-        self.env = env
+        self.cwd = self._map_cwd(cwd)
+        self.env = env or {}
         # Filter kwargs based on allowed keys
         self.kwargs = {k: v for k, v in kwargs.items() if k in SUBPROCESS_ALLOWED_KEYS}
+
+    def _map_cwd(self, cwd_value: Union[Path, str]) -> Path:
+        """
+        Map the script's working directory to a common value if provided.
+        """
+        if isinstance(cwd_value, str) and cwd_value in CWD_PATH_MAPPING:
+            return CWD_PATH_MAPPING[cwd_value]
+        return Path(cwd_value)
+        
 
     def resolve_cwd(self, base_dir: Path, auto_create: bool = False) -> Path:
         """
         Resolve the script's working directory relative to base_dir.
         """
         resolved = self.cwd if self.cwd.is_absolute() else (base_dir / self.cwd).resolve()
-        if not (str(resolved).startswith(str(base_dir.resolve())) or str(resolved).startswith(str(Path.cwd().resolve()))):
-            raise ValueError("Relative path cannot be outside of the package directory or workspace.")
+        if not (str(resolved).startswith(str(Path.home()))):
+            raise ValueError("Relative path cannot be resolved outside the home directory.")
         if not resolved.exists():
             if auto_create:
                 logger.info("Auto-creating missing working directory '%s'.", resolved)
@@ -155,7 +172,9 @@ class Script:
             base_dir, extra_args=extra_args, auto_create_cwd=auto_create_cwd
         )
         logger.info("Executing command: %s", config["args"])
-        logger.debug("Subprocess configuration: %s", config)
+        logger.info("Working directory: %s", self.cwd)
+        logger.info("Environment variables: %s", self.env)
+        logger.debug("Full subprocess configuration: %s", json.dumps(config, indent=3))
         result = subprocess.run(**config)
         if result.returncode != 0:
             # Try a fallback execution without shell wrapper

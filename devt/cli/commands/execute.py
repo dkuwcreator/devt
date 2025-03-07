@@ -70,8 +70,7 @@ def run_workspace(
     """
     Executes a script from the workspace package using the PackageBuilder.
     """
-    if extra_args is None:
-        extra_args = []
+    extra_args = extra_args or []
     workspace_file = find_file_type("manifest", WORKSPACE_APP_DIR)
     if not workspace_file:
         typer.echo("No workspace file found in the current directory.")
