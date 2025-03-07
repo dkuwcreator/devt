@@ -3,11 +3,15 @@
 # Project Identity
 PROJECT_NAME           = "DevT"
 PROJECT_BRIEF          = "Developer Tool CLI - Documentation of commands and architecture"
+
+# Output directory for generated docs
 OUTPUT_DIRECTORY       = docs
-USE_MDFILE_AS_MAINPAGE = README.md         # Use README (in Markdown) as main page if available
+
+# Use the README as the main page (introduction)
+USE_MDFILE_AS_MAINPAGE = README.md    # Use README.md as the main page if available
 
 # Input Files and Directories
-INPUT                  = ./src ./README.md  # Source code directory and README for overview
+INPUT                  = ./devt ./README.md   # Source code directory and README for overview
 FILE_PATTERNS          = *.py *.md
 RECURSIVE              = YES
 
@@ -19,35 +23,35 @@ EXTRACT_LOCAL_CLASSES  = YES
 EXTRACT_ANON_NSPACES   = YES
 
 # Typer (Python) specific settings
-EXTENSION_MAPPING      = .py=Python        # Treat .py files as Python source
-OPTIMIZE_OUTPUT_FOR_C  = NO                # Not a C project
+EXTENSION_MAPPING      = .py=Python   # Treat .py files as Python source
+OPTIMIZE_OUTPUT_FOR_C  = NO          # Not a C project
 OPTIMIZE_OUTPUT_JAVA   = NO
 
-# Build configuration
+# Build configuration warnings
 QUIET                  = NO
-WARN_IF_UNDOCUMENTED   = YES               # Warn if any entity is undocumented
+WARN_IF_UNDOCUMENTED   = YES   # Warn if any entity is undocumented
 WARN_NO_PARAMDOC       = YES
 
 # Documentation output format
-GENERATE_HTML          = YES               # HTML output (for easy browsing)
+GENERATE_HTML          = YES   # HTML output for easy browsing
 GENERATE_LATEX         = NO
 GENERATE_MAN           = NO
 GENERATE_XML           = NO
-GENERATE_MARKDOWN      = YES               # Enable Markdown processing in comments
+MARKDOWN_SUPPORT       = YES   # Enable Markdown formatting in comments (for README and docstrings)
 
 # Diagram and Graph settings (enable class, collaboration, dependency diagrams)
-HAVE_DOT               = YES               # Use Graphviz/dot for diagrams
+HAVE_DOT               = YES   # Use Graphviz (dot) for generating diagrams
 DOT_GRAPH_MAX_NODES    = 50
 CLASS_DIAGRAMS         = YES
 COLLABORATION_DIAGRAMS = YES
-CALL_GRAPH             = NO
+CALL_GRAPH             = NO    # (Could be enabled if call graphs are needed)
 CALLER_GRAPH           = NO
-INCLUDE_GRAPH          = YES               # Include dependency graphs for files
+INCLUDE_GRAPH          = YES   # Include dependency graphs for files/modules
 INCLUDED_BY_GRAPH      = YES
 DOT_UML_DETAILS        = YES
 UML_LOOK               = YES
 
-# Image generation for UML (to include topology diagram, class diagrams, etc.)
+# Image generation for UML diagrams
 DOT_IMAGE_FORMAT       = png
 INTERACTIVE_SVG        = NO
 
@@ -55,15 +59,15 @@ INTERACTIVE_SVG        = NO
 SOURCE_BROWSER         = YES
 INLINE_SOURCES         = YES
 
-# Extra configuration to ensure Typer CLI commands are emphasized
-ENABLE_PREPROCESSING   = NO                # Not needed for Python
+# Preprocessing (not needed for Python)
+ENABLE_PREPROCESSING   = NO
 FULL_PATH_NAMES        = YES
-STRIP_FROM_PATH        = ./src
+STRIP_FROM_PATH        = ./devt   # Strip the source path prefix in output for brevity
 
 # References and Index
 GENERATE_INDEX         = YES
 SEARCHENGINE           = YES
 
-# Project Overview (using main page or custom page for topology)
-GENERATE_MAINPAGE      = YES
-# (The README.md should contain a high-level overview and a \dot diagram for topology if needed)
+# Project Overview 
+GENERATE_MAINPAGE      = YES   # Ensure a main page is generated using the README content
+# (The README.md provides a high-level overview of DevT and will appear as the index page)
