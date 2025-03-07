@@ -1,0 +1,69 @@
+# Doxyfile for DevT Project Documentation
+
+# Project Identity
+PROJECT_NAME           = "DevT"
+PROJECT_BRIEF          = "Developer Tool CLI - Documentation of commands and architecture"
+OUTPUT_DIRECTORY       = docs
+USE_MDFILE_AS_MAINPAGE = README.md         # Use README (in Markdown) as main page if available
+
+# Input Files and Directories
+INPUT                  = ./src ./README.md  # Source code directory and README for overview
+FILE_PATTERNS          = *.py *.md
+RECURSIVE              = YES
+
+# Extract all entities to ensure complete documentation
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+EXTRACT_ANON_NSPACES   = YES
+
+# Typer (Python) specific settings
+EXTENSION_MAPPING      = .py=Python        # Treat .py files as Python source
+OPTIMIZE_OUTPUT_FOR_C  = NO                # Not a C project
+OPTIMIZE_OUTPUT_JAVA   = NO
+
+# Build configuration
+QUIET                  = NO
+WARN_IF_UNDOCUMENTED   = YES               # Warn if any entity is undocumented
+WARN_NO_PARAMDOC       = YES
+
+# Documentation output format
+GENERATE_HTML          = YES               # HTML output (for easy browsing)
+GENERATE_LATEX         = NO
+GENERATE_MAN           = NO
+GENERATE_XML           = NO
+GENERATE_MARKDOWN      = YES               # Enable Markdown processing in comments
+
+# Diagram and Graph settings (enable class, collaboration, dependency diagrams)
+HAVE_DOT               = YES               # Use Graphviz/dot for diagrams
+DOT_GRAPH_MAX_NODES    = 50
+CLASS_DIAGRAMS         = YES
+COLLABORATION_DIAGRAMS = YES
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+INCLUDE_GRAPH          = YES               # Include dependency graphs for files
+INCLUDED_BY_GRAPH      = YES
+DOT_UML_DETAILS        = YES
+UML_LOOK               = YES
+
+# Image generation for UML (to include topology diagram, class diagrams, etc.)
+DOT_IMAGE_FORMAT       = png
+INTERACTIVE_SVG        = NO
+
+# Source Code Listings
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = YES
+
+# Extra configuration to ensure Typer CLI commands are emphasized
+ENABLE_PREPROCESSING   = NO                # Not needed for Python
+FULL_PATH_NAMES        = YES
+STRIP_FROM_PATH        = ./src
+
+# References and Index
+GENERATE_INDEX         = YES
+SEARCHENGINE           = YES
+
+# Project Overview (using main page or custom page for topology)
+GENERATE_MAINPAGE      = YES
+# (The README.md should contain a high-level overview and a \dot diagram for topology if needed)
