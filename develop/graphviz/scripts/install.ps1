@@ -1,6 +1,33 @@
 param (
-    [string]$Version = ""
+    [string]$Version = "",
+    [switch]$Uninstall
 )
+
+$InstallDir = Join-Path $env:APPDATA "graphviz"
+$binPath = Join-Path $InstallDir "bin"
+
+if ($Uninstall) {
+    try {
+        if (Test-Path $InstallDir) {
+            Write-Output "Removing Graphviz installation..."
+            Remove-Item -Path $InstallDir -Recurse -Force
+        } else {
+            Write-Output "Graphviz is not installed."
+        }
+        
+        Write-Output "Removing Graphviz from PATH..."
+        $currentPath = [System.Environment]::GetEnvironmentVariable("PATH", [System.EnvironmentVariableTarget]::User)
+        $newPath = ($currentPath -split ";") -notmatch [regex]::Escape($binPath)
+        [System.Environment]::SetEnvironmentVariable("PATH", ($newPath -join ";"), [System.EnvironmentVariableTarget]::User)
+        $env:PATH = ($env:PATH -split ";") -notmatch [regex]::Escape($binPath) -join ";"
+        
+        Write-Output "Uninstallation complete. Please restart your terminal or log off and log back in for the PATH changes to take effect."
+    } catch {
+        Write-Error "An error occurred during uninstallation: $_"
+        exit 1
+    }
+    exit 0
+}
 
 function Get-LatestGraphvizVersion {
     try {
@@ -26,30 +53,41 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     Write-Output "Using provided version: $Version"
 }
 
-# https://gitlab.com/api/v4/projects/4207231/packages/generic/graphviz-releases/12.2.1/windows_10_cmake_Release_Graphviz-12.2.1-win64.zip
-$GraphvizUrl = "https://gitlab.com/api/v4/projects/4207231/packages/generic/graphviz-releases/$Version/windows_10_cmake_Release_Graphviz-$Version-win64.zip"
+$dirName = "Graphviz-$Version-win64"
+$GraphvizUrl = "https://gitlab.com/api/v4/projects/4207231/packages/generic/graphviz-releases/$Version/windows_10_cmake_Release_$dirName.zip"
 $TempZip = Join-Path $env:TEMP "graphviz.zip"
-$InstallDir = Join-Path $env:ProgramFiles "Graphviz"
+$TempDir = Join-Path $env:TEMP $dirName
 
 try {
     Write-Output "Downloading Graphviz version $Version..."
     Invoke-WebRequest -Uri $GraphvizUrl -OutFile $TempZip -UseBasicParsing
 
     Write-Output "Extracting Graphviz..."
-    Expand-Archive -Path $TempZip -DestinationPath $InstallDir -Force
+    Expand-Archive -Path $TempZip -DestinationPath $env:TEMP -Force
+
+    Write-Output "Moving Graphviz to installation directory..."
+    if (Test-Path $InstallDir) {
+        Write-Output "Installation directory exists, removing it..."
+        Remove-Item -Path $InstallDir -Recurse -Force
+    }
+    Move-Item -Path $TempDir -Destination $InstallDir -Force
 
     Write-Output "Adding Graphviz to PATH..."
-    $binPath = Join-Path $InstallDir "bin"
-    $currentPath = [System.Environment]::GetEnvironmentVariable("PATH", [System.EnvironmentVariableTarget]::Machine)
+    $currentPath = [System.Environment]::GetEnvironmentVariable("PATH", [System.EnvironmentVariableTarget]::User)
     if ($currentPath -notlike "*$binPath*") {
         $newPath = "$currentPath;$binPath"
-        [System.Environment]::SetEnvironmentVariable("PATH", $newPath, [System.EnvironmentVariableTarget]::Machine)
+        [System.Environment]::SetEnvironmentVariable("PATH", $newPath, [System.EnvironmentVariableTarget]::User)
+        $env:PATH = "$env:PATH;$binPath"
     }
 
     Write-Output "Cleaning up..."
     Remove-Item -Path $TempZip -Force
 
-    Write-Output "Installation complete. Please restart your terminal or log off and log back in for the PATH changes to take effect."
+    Write-Output "Run 'dot -V' to verify installation."
+    dot -V
+
+    Write-Output "Installation complete."
+    exit 0
 }
 catch {
     Write-Error "An error occurred: $_"

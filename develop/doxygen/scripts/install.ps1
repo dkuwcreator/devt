@@ -1,6 +1,33 @@
 param(
-    [string]$Version = ""
+    [string]$Version = "",
+    [switch]$Uninstall
 )
+
+$InstallDir = Join-Path $env:APPDATA "Doxygen"
+$binPath = $InstallDir
+
+if ($Uninstall) {
+    try {
+        if (Test-Path $InstallDir) {
+            Write-Output "Removing Doxygen installation..."
+            Remove-Item -Path $InstallDir -Recurse -Force
+        } else {
+            Write-Output "Doxygen is not installed."
+        }
+        
+        Write-Output "Removing Doxygen from PATH..."
+        $currentPath = [System.Environment]::GetEnvironmentVariable("PATH", [System.EnvironmentVariableTarget]::User)
+        $newPath = ($currentPath -split ";") -notmatch [regex]::Escape($binPath)
+        [System.Environment]::SetEnvironmentVariable("PATH", ($newPath -join ";"), [System.EnvironmentVariableTarget]::User)
+        $env:PATH = ($env:PATH -split ";") -notmatch [regex]::Escape($binPath) -join ";"
+        
+        Write-Output "Uninstallation complete. Please restart your terminal or log off and log back in for the PATH changes to take effect."
+    } catch {
+        Write-Error "An error occurred during uninstallation: $_"
+        exit 1
+    }
+    exit 0
+}
 
 function Get-LatestDoxygenVersion {
     try {
@@ -19,15 +46,13 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = $VersionUnderscore -replace "_", "."
     Write-Output "No version provided. Using latest version: $Version"
 } else {
-    $VersionUnderscore = $Version -replace "\.", "_"
+    $VersionUnderscore = $Version -replace "\\.", "_"
     $ReleaseVersion = "Release_$Version"
     Write-Output "Using provided version: $Version"
 }
 
 $DoxygenUrl = "https://github.com/doxygen/doxygen/releases/download/$ReleaseVersion/doxygen-$Version.windows.x64.bin.zip"
-
 $TempZip = Join-Path $env:TEMP "doxygen.zip"
-$InstallDir = Join-Path $env:APPDATA "Doxygen"
 
 try {
     Write-Output "Downloading Doxygen version $Version..."
@@ -38,16 +63,20 @@ try {
 
     Write-Output "Adding Doxygen to PATH..."
     $currentPath = [System.Environment]::GetEnvironmentVariable("PATH", [System.EnvironmentVariableTarget]::User)
-    # If the path already contains the Doxygen bin directory, don't add it again
-    if ($currentPath -notlike "*$InstallDir*") {
-        $newPath = "$currentPath;$InstallDir"
+    if ($currentPath -notlike "*$binPath*") {
+        $newPath = "$currentPath;$binPath"
         [System.Environment]::SetEnvironmentVariable("PATH", $newPath, [System.EnvironmentVariableTarget]::User)
+        $env:PATH = "$env:PATH;$binPath"
     }
     
     Write-Output "Cleaning up..."
     Remove-Item -Path $TempZip -Force
 
-    Write-Output "Installation complete. Please restart your terminal."
+    Write-Output "Run 'doxygen --version' to verify installation."
+    doxygen --version
+
+    Write-Output "Installation complete."
+    exit 0
 }
 catch {
     Write-Error "An error occurred: $_"

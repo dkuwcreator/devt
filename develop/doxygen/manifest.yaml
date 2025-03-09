@@ -3,19 +3,23 @@ description: "Doxygen is a documentation generator for various programming langu
 command: doxygen
 dependencies: {}
 scripts:
-    # generate:
-    #     env:
-    #         DOXYGEN_OUTPUT_DIRECTORY: "docs"
-    #         DOXYGEN_INPUT: "src"
-    #     posix: scripts/generate_docs.sh
-    #     windows: scripts/generate_docs.ps1
+    cwd: workspace
     posix:
         install: sudo apt-get install doxygen
         uninstall: sudo apt-get remove doxygen
         upgrade: sudo apt-get install doxygen --upgrade
     windows:
-        install: scripts/install.ps1
-        uninstall: scripts/uninstall.ps1
-        upgrade: winget upgrade --scope user Doxygen
+        install: ./scripts/install.ps1
+        uninstall: ./scripts/install.ps1 -Uninstall
+        upgrade: ./scripts/install.ps1
+        browse: start http://localhost:8080
+        serve: 
+            cwd: workspace/docs/html
+            args: start python -m http.server 8080 && start http://localhost:8080
+            shell: ''
+    server:
+        cwd: workspace/docs/html
+        args: py -m http.server 8080
     version: doxygen --version
     test: doxygen --version
+    generate: doxygen Doxyfile

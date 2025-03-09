@@ -4,5 +4,8 @@ command: graphviz
 dependencies: {}
 scripts: 
     windows:
-        install: scripts/install.ps1
-        uninstall: scripts/uninstall.ps1
+        install: ./scripts/install.ps1
+        uninstall: ./scripts/install.ps1 -Uninstall
+        upgrade: ./scripts/install.ps1
+    version: dot -V
+    test: dot -V
