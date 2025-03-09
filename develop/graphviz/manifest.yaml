@@ -1,0 +1,8 @@
+name: graphviz
+description: A new tool for command 'graphviz'.
+command: graphviz
+dependencies: {}
+scripts: 
+    windows:
+        install: scripts/install.ps1
+        uninstall: scripts/uninstall.ps1
