@@ -114,6 +114,7 @@ class PackageBuilder:
         """
         logger.debug("Retrieving script entry for key: %s", script_key)
         base_config = dict(scripts)
+        print(base_config)
         CURRENT_OS = "windows" if os.name == "nt" else "posix"
         if CURRENT_OS in base_config and script_key in base_config[CURRENT_OS]:
             logger.debug("Merging OS-specific settings for script '%s'.", script_key)
@@ -132,6 +133,9 @@ class PackageBuilder:
                     "Merging OS-specific dictionary for script '%s'.", script_key
                 )
                 return merge_configs(base_config, script_entry, os_specific)
+        elif script_entry:
+            logger.debug("Merging script entry for '%s'.", script_key)
+            return merge_configs(base_config, script_entry)
         error_msg = f"Script '{script_key}' not found in the manifest."
         logger.error(error_msg)
         raise ValueError(error_msg)

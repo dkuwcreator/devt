@@ -8,6 +8,7 @@ from devt.cli.helpers import (
     get_scopes_to_query,
     get_package_from_registries,
 )
+from devt.constants import SCOPE_TO_REGISTRY_DIR
 from devt.registry.manager import RegistryManager
 from devt.package.manager import PackageManager
 
@@ -21,16 +22,11 @@ class ToolService:
 
     @classmethod
     def from_context(cls, ctx: typer.Context) -> "ToolService":
-        scope = ctx.obj.get("scope")
-        return cls(scope)
+        return cls(ctx.obj.get("registry_dir"))
 
-    def __init__(
-        self,
-        scope: str,
-    ) -> None:
-        self.registry = RegistryManager(scope)
-        self.pkg_manager = PackageManager(scope)
-        self.scope = scope
+    def __init__(self, registry_dir: Path) -> None:
+        self.registry = RegistryManager(registry_dir)
+        self.pkg_manager = PackageManager(registry_dir)
 
     # -------------------------------------------
     # Tool Import / Export / Update Operations
@@ -100,14 +96,14 @@ class ToolService:
         for pkg_info in packages:
             self.update_tool(pkg_info["command"])
 
-    def export_tool(self, command: str, output: Path) -> None:
+    def export_tool(self, command: str, output: Path, as_zip: bool, force: bool) -> None:
         """Exports a tool package as a ZIP archive."""
         pkg_info = self.registry.package_registry.get_package(command)
         if not pkg_info:
             raise ValueError(f"Tool '{command}' not found in {self.scope} registry.")
 
         output_path = (Path.cwd() / output).resolve()
-        self.pkg_manager.export_package(Path(pkg_info["location"]), output_path)
+        self.pkg_manager.export_package(Path(pkg_info["location"]), output_path, as_zip, force)
         logger.info("Exported tool '%s' to %s.", command, output_path)
 
     # -------------------------------------------
@@ -171,7 +167,7 @@ class ToolService:
         sync_counts = {}
         scopes = get_scopes_to_query(self.scope)
         for scope, reg in scopes.items():
-            pkg_manager = PackageManager(scope)
+            pkg_manager = PackageManager(SCOPE_TO_REGISTRY_DIR[scope])
             count = 0
             active_packages = reg.package_registry.list_packages(active=True)
             for pkg in active_packages:

@@ -1,10 +1,11 @@
 import concurrent.futures
+from pathlib import Path
 import threading
 import time
 import typer
 import logging
 from devt.cli.tool_service import ToolService
-from devt.config_manager import SCOPE_TO_REGISTRY_DIR
+from devt.constants import SCOPE_TO_REGISTRY_DIR
 from devt.package.manager import PackageManager
 from devt.registry.manager import RegistryManager
 from devt.repo_manager import RepoManager
@@ -17,12 +18,12 @@ class SyncManager:
     @classmethod
     def from_context(cls, ctx: typer.Context) -> "SyncManager":
         scope = ctx.obj.get("scope")
-        return cls(scope)
+        return cls(SCOPE_TO_REGISTRY_DIR[scope])
     
-    def __init__(self, scope):
-        self.registry = RegistryManager(scope)
-        self.pkg_manager = PackageManager(scope)
-        self.tool_service = ToolService(scope)
+    def __init__(self, registry_dir: Path) -> None:
+        self.registry = RegistryManager(registry_dir)
+        self.pkg_manager = PackageManager(registry_dir)
+        self.tool_service = ToolService(registry_dir)
         self.repo_manager = RepoManager()
         self.last_sync_time = 0
 

@@ -29,9 +29,6 @@ jobs:
           path: .venv
           key: ${{ runner.os }}-venv-${{ hashFiles('**/requirements.txt') }}
 
-      - name: Write Version File
-        run: echo "${{ github.ref_name }}" > .version
-
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -52,11 +49,15 @@ jobs:
 
       - name: Run build script (Windows)
         if: runner.os == 'Windows'
+        env:
+          APP_VERSION: ${{ github.ref_name }}
         shell: pwsh
         run: .\.venv\Scripts\python.exe build.py --ci
 
       - name: Run build script (Linux/macOS)
         if: runner.os != 'Windows'
+        env:
+          APP_VERSION: ${{ github.ref_name }}
         shell: bash
         run: |
           source .venv/bin/activate

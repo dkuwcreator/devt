@@ -5,7 +5,6 @@ import zipfile
 from pathlib import Path
 from typing import List
 
-from devt.config_manager import SCOPE_TO_REGISTRY_DIR
 from devt.utils import find_file_type, load_manifest, merge_configs, save_manifest
 from .builder import PackageBuilder, ToolPackage
 
@@ -16,11 +15,10 @@ class PackageManager:
     Handles file system operations for packages, including importing, moving,
     copying, deleting, and exporting package directories.
     """
-    def __init__(self, scope: str) -> None:
+    def __init__(self, registry_dir: Path) -> None:
         """
         Initialize the PackageManager with a directory for storing packages.
         """
-        registry_dir = SCOPE_TO_REGISTRY_DIR[scope]
         self.tools_dir: Path = registry_dir / "tools"
         self.tools_dir.mkdir(parents=True, exist_ok=True)
         logger.debug("Initialized PackageManager. Tools directory set to: %s", self.tools_dir)
@@ -235,22 +233,63 @@ class PackageManager:
             logger.warning("Package directory '%s' does not exist. Nothing to delete.", package_dir)
             return True
 
-    def export_package(self, package_location: Path, output_path: Path) -> Path:
+    def export_package(self, package_location: Path, output_path: Path, as_zip: bool = False, force: bool = False) -> Path:
         """
-        Export a package folder as a zip archive.
+        Export a package folder as a zip archive if as_zip is True,
+        otherwise copy the package directory normally. If force is True,
+        existing files or folders at the output location will be overwritten.
         """
-        if output_path.is_dir():
-            output_path = output_path / f"{package_location.name}.zip"
-        logger.info("Exporting package from '%s' to zip archive '%s'.", package_location, output_path)
-        try:
-            with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for file in package_location.rglob("*"):
-                    if file.is_file():
-                        zf.write(file, file.relative_to(package_location))
-            logger.info("Package exported successfully to '%s'.", output_path)
-        except Exception:
-            logger.exception("Failed to export package from '%s' to '%s'.", package_location, output_path)
-            raise
+        if as_zip:
+            if output_path.is_dir():
+                output_path = output_path / f"{package_location.name}.zip"
+            if output_path.exists():
+                if force:
+                    try:
+                        if output_path.is_file():
+                            output_path.unlink()
+                        else:
+                            shutil.rmtree(output_path)
+                    except Exception:
+                        logger.exception("Failed to remove existing file/folder at '%s'.", output_path)
+                        raise
+                else:
+                    error_msg = f"Output file '{output_path}' already exists."
+                    logger.error(error_msg)
+                    raise FileExistsError(error_msg)
+            logger.info("Exporting package from '%s' to zip archive '%s'.", package_location, output_path)
+            try:
+                with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for file in package_location.rglob("*"):
+                        if file.is_file():
+                            zf.write(file, file.relative_to(package_location))
+                logger.info("Package exported successfully to '%s'.", output_path)
+            except Exception:
+                logger.exception("Failed to export package from '%s' to '%s'.", package_location, output_path)
+                raise
+        else:
+            if output_path.is_dir():
+                output_path = output_path / package_location.name
+            if output_path.exists():
+                if force:
+                    try:
+                        if output_path.is_dir():
+                            shutil.rmtree(output_path)
+                        else:
+                            output_path.unlink()
+                    except Exception:
+                        logger.exception("Failed to remove existing file/folder at '%s'.", output_path)
+                        raise
+                else:
+                    error_msg = f"Output directory '{output_path}' already exists."
+                    logger.error(error_msg)
+                    raise FileExistsError(error_msg)
+            logger.info("Copying package from '%s' to '%s'.", package_location, output_path)
+            try:
+                shutil.copytree(package_location, output_path)
+                logger.info("Package copied successfully to '%s'.", output_path)
+            except Exception:
+                logger.exception("Failed to copy package from '%s' to '%s'.", package_location, output_path)
+                raise
         return output_path
 
     def unpack_package(self, zip_path: Path, destination_dir: Path) -> Path:

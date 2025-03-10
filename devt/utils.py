@@ -1,15 +1,76 @@
 import json
 import logging
+import os
 from pathlib import Path
+import platform
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 from jsonschema import ValidationError, validate
 import typer
 import yaml
+
+from devt.constants import USER_APP_DIR, WORKSPACE_APP_DIR
+
 # from InquirerPy import inquirer
 
 logger = logging.getLogger(__name__)
+
+
+def scopes_to_registry_dirs() -> dict:
+    """
+    Returns the appropriate registry directory based on the specified scope.
+    If WORKSPACE_APP_DIR does not exist, the workspace entry is omitted.
+    """
+    registry_dirs = {"user": USER_APP_DIR}
+    if WORKSPACE_APP_DIR.exists():
+        registry_dirs["workspace"] = WORKSPACE_APP_DIR
+    return registry_dirs
+
+
+def set_user_environment_var(name: str, value: str) -> None:
+    """
+    Persists a user environment variable across sessions in a cross-platform way.
+    """
+    system = platform.system()
+
+    try:
+        if system == "Windows":
+            import winreg
+
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
+            ) as key:
+                winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+            logger.debug("Set user environment variable on Windows: %s=%s", name, value)
+
+        elif system in ["Linux", "Darwin"]:  # Darwin is macOS
+            bashrc_path = os.path.expanduser("~/.bashrc")
+            zshrc_path = os.path.expanduser("~/.zshrc")
+            export_command = f'export {name}="{value}"\n'
+
+            # Export variable in the shell profile, but only if not already present
+            for rc_path in [bashrc_path, zshrc_path]:
+                if os.path.exists(rc_path):
+                    with open(rc_path, "r") as f:
+                        content = f.read()
+                    if export_command.strip() not in content:
+                        with open(rc_path, "a") as f:
+                            f.write(export_command)
+
+            # Also set it for the current session
+            os.environ[name] = value
+
+            logger.debug(
+                "Set user environment variable on Linux/macOS: %s=%s", name, value
+            )
+        else:
+            logger.warning(
+                "Unsupported OS: %s. Cannot persist environment variable.", system
+            )
+
+    except Exception as e:
+        logger.error("Failed to set user environment variable %s: %s", name, e)
 
 
 def resolve_rel_path(base_dir: Path, rel_path: str) -> Path:
@@ -65,12 +126,14 @@ def find_file_type(prefix: str, current_dir: Path = Path.cwd()) -> Optional[Path
 def load_manifest(manifest_path: Path) -> Dict[str, Any]:
     """Load and parse the manifest file (YAML or JSON)."""
     if not manifest_path.is_file():
-        logger.debug("Manifest path '%s' is not a file; searching for manifest.", manifest_path)
+        logger.debug(
+            "Manifest path '%s' is not a file; searching for manifest.", manifest_path
+        )
         manifest_path = find_file_type("manifest", manifest_path)
         if not manifest_path:
             logger.error("Manifest file not found in directory: %s", manifest_path)
             raise FileNotFoundError("Manifest file not found.")
-    
+
     logger.debug("Loading manifest file: %s", manifest_path)
     with manifest_path.open("r", encoding="utf-8") as f:
         if manifest_path.suffix in [".yaml", ".yml"]:
@@ -80,7 +143,7 @@ def load_manifest(manifest_path: Path) -> Dict[str, Any]:
         else:
             logger.error("Unsupported file extension: %s", manifest_path.suffix)
             raise ValueError(f"Unsupported file extension: {manifest_path.suffix}")
-        
+
         if not data:
             logger.error("Manifest file is empty or invalid: %s", manifest_path)
             raise ValueError(f"Manifest file is empty or invalid: {manifest_path}")
@@ -104,15 +167,25 @@ def save_manifest(manifest_dir: Path, data: Dict[str, Any], type: str = "yaml") 
     logger.debug("Manifest saved to: %s", manifest_file)
 
 
-def find_recursive_manifest_files(current_dir: Path = Path.cwd(), max_depth: int = 3) -> List[Path]:
+def find_recursive_manifest_files(
+    current_dir: Path = Path.cwd(), max_depth: int = 3
+) -> List[Path]:
     """
     Recursively search for manifest files in the current directory and its subdirectories up to a specified depth.
     Returns a list of paths to the manifest files found.
     """
-    logger.debug("Recursively searching for manifest files in %s (max depth %d)", current_dir, max_depth)
+    logger.debug(
+        "Recursively searching for manifest files in %s (max depth %d)",
+        current_dir,
+        max_depth,
+    )
     manifest_files = []
     for path in current_dir.rglob("*"):
-        if path.is_file() and path.name in ["manifest.yaml", "manifest.yml", "manifest.json"]:
+        if path.is_file() and path.name in [
+            "manifest.yaml",
+            "manifest.yml",
+            "manifest.json",
+        ]:
             if len(path.relative_to(current_dir).parts) <= max_depth:
                 logger.debug("Found manifest file: %s", path)
                 manifest_files.append(path)
@@ -132,7 +205,11 @@ def merge_configs(*configs: Dict[str, Any]) -> Dict[str, Any]:
             logger.debug("Skipping empty configuration source.")
             continue
         for key, value in config.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(value, dict)
+            ):
                 merged = result[key].copy()
                 merged.update(value)
                 result[key] = merged
@@ -186,6 +263,7 @@ def determine_source(source: str) -> str:
 
 def on_exc(func, path, exc):
     import os
+
     logger.debug("Handling exception for path: %s; Exception: %s", path, exc)
     if isinstance(exc, PermissionError):
         os.chmod(path, 0o777)
@@ -227,7 +305,9 @@ def validate_manifest(manifest: dict) -> bool:
         return False
 
 
-def print_table(headers: List[str], rows: List[List[str]], max_field_length: int = 30) -> List[str]:
+def print_table(
+    headers: List[str], rows: List[List[str]], max_field_length: int = 30
+) -> List[str]:
     logger.info("Printing table with headers: %s", headers)
 
     def truncate_field(text: str, width: int) -> str:
@@ -237,25 +317,42 @@ def print_table(headers: List[str], rows: List[List[str]], max_field_length: int
 
     # Calculate column widths but limit them to max_field_length
     col_widths = [
-        min(max(len(headers[i]), max((len(row[i]) for row in rows), default=0)), max_field_length)
+        min(
+            max(len(headers[i]), max((len(row[i]) for row in rows), default=0)),
+            max_field_length,
+        )
         for i in range(len(headers))
     ]
-    
+
     # Build the formatted header line with truncation if needed
     separator = "+" + "+".join("-" * (w + 2) for w in col_widths) + "+"
-    header_line = "|" + "|".join(f" {truncate_field(headers[i], col_widths[i]).ljust(col_widths[i])} " for i in range(len(headers))) + "|"
-    
+    header_line = (
+        "|"
+        + "|".join(
+            f" {truncate_field(headers[i], col_widths[i]).ljust(col_widths[i])} "
+            for i in range(len(headers))
+        )
+        + "|"
+    )
+
     typer.echo(separator)
     typer.echo(header_line)
     typer.echo(separator)
-    
+
     for row in rows:
-        row_line = "|" + "|".join(f" {truncate_field(row[i], col_widths[i]).ljust(col_widths[i])} " for i in range(len(row))) + "|"
+        row_line = (
+            "|"
+            + "|".join(
+                f" {truncate_field(row[i], col_widths[i]).ljust(col_widths[i])} "
+                for i in range(len(row))
+            )
+            + "|"
+        )
         typer.echo(row_line)
-    
+
     typer.echo(separator)
     logger.info("Table printed successfully.")
-    
+
     # Use select_row to let the user choose a row after printing the table
     # selected = select_row(headers, rows)
     # logger.info("Row selected from print_table: %s", selected)

@@ -10,6 +10,7 @@ import typer
 import logging
 
 from devt.cli.helpers import is_git_installed, setup_app_context
+from devt.cli.commands.env import env_app
 from devt.cli.commands.config import config_app
 from devt.cli.commands.tool import tool_app
 from devt.cli.commands.workspace import workspace_app
@@ -71,6 +72,7 @@ def main(
 
 
 # Add grouped commands
+app.add_typer(env_app, name="env")
 app.add_typer(config_app, name="config")
 app.add_typer(tool_app, name="tool")
 app.add_typer(workspace_app, name="workspace")

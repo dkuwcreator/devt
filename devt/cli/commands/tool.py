@@ -218,34 +218,21 @@ def tool_move(
 def tool_export(
     ctx: typer.Context,
     tool_command: str = typer.Argument(..., help="Unique tool command to export"),
-    output: Path = typer.Argument(..., help="Output zip archive path"),
+    output: Path = typer.Argument(..., help="Output path"),
+    as_zip: bool = typer.Option(
+        False, "--zip", help="Export as a ZIP archive (default: False)"
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Force overwrite if the package already exists"
+    ),
 ):
     """
     Exports a tool package as a ZIP archive.
     """
     logger.info("Exporting tool '%s' to output path: %s", tool_command, output)
     service = ToolService.from_context(ctx)
-    service.export_tool(tool_command, output)
+    service.export_tool(tool_command, output, as_zip, force)
     typer.echo(f"Tool '{tool_command}' exported successfully.")
-
-
-@tool_app.command("customize")
-@handle_errors
-def tool_customize(
-    ctx: typer.Context,
-    tool_command: str = typer.Argument(..., help="Unique tool command to customize"),
-    force: bool = typer.Option(
-        False, "--force", help="Force overwrite if the package already exists"
-    ),
-):
-    """
-    Copies a tool package from the user registry to the workspace for customization.
-    """
-    logger.info("Customizing tool '%s'.", tool_command)
-    service = ToolService.from_context(ctx)
-    service.customize_tool(tool_command, force)
-    typer.echo(f"Tool '{tool_command}' copied to workspace for customization.")
-
 
 @tool_app.command("sync")
 @handle_errors

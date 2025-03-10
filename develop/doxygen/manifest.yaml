@@ -3,7 +3,6 @@ description: "Doxygen is a documentation generator for various programming langu
 command: doxygen
 dependencies: {}
 scripts:
-    cwd: workspace
     posix:
         install: sudo apt-get install doxygen
         uninstall: sudo apt-get remove doxygen
@@ -12,14 +11,10 @@ scripts:
         install: ./scripts/install.ps1
         uninstall: ./scripts/install.ps1 -Uninstall
         upgrade: ./scripts/install.ps1
-        browse: start http://localhost:8080
         serve: 
             cwd: workspace/docs/html
             args: start python -m http.server 8080 && start http://localhost:8080
             shell: ''
-    server:
-        cwd: workspace/docs/html
-        args: py -m http.server 8080
     version: doxygen --version
     test: doxygen --version
-    generate: doxygen Doxyfile
+    generate: doxygen

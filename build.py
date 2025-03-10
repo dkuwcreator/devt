@@ -1,26 +1,28 @@
 #!/usr/bin/env python
 import subprocess
 import platform
-import shutil
 import logging
 from pathlib import Path
+import configparser
 
 import typer
-from dotenv import dotenv_values
+import os
 
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 # Configuration & Logging
-# ------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-config = dotenv_values("project.env")
+settings = configparser.ConfigParser()
+settings.read('settings.ini')
+
 SESSION_CWD = Path(__file__).parent
 
 # Directories and filenames
-VENV_DIR = SESSION_CWD / config.get("VENV_DIR", ".venv")
-DIST_DIR = SESSION_CWD / config.get("DIST_DIR", "dist")
-ENTRY_SCRIPT = config.get("ENTRY_SCRIPT", "my_project/cli.py")
-OUTPUT_NAME = config.get("OUTPUT_NAME", "devt")
-UPDATER_SCRIPT = config.get("UPDATER_SCRIPT", "my_project/installer.py")
+VENV_DIR = SESSION_CWD / settings.get("project", "venv_dir", fallback=".venv")
+DIST_DIR = SESSION_CWD / settings.get("project", "dist_dir", fallback="dist")
+ENTRY_SCRIPT = settings.get("project", "entry_script", fallback="devt/cli/main.py")
+OUTPUT_NAME = settings.get("project", "output_name", fallback="devt")
+UPDATER_SCRIPT = settings.get("project", "updater_script", fallback="devt/installer.py")
 INIT_FILE = SESSION_CWD / OUTPUT_NAME / "__init__.py"
 VERSION_FILE = SESSION_CWD / ".version"
 PYTHON_EXECUTABLE = VENV_DIR / ("Scripts/python.exe" if platform.system() == "Windows" else "bin/python")
@@ -65,17 +67,9 @@ def ensure_venv() -> None:
     run_command([str(PYTHON_EXECUTABLE), "-m", "pip", "install", "--upgrade", "pip"])
     run_command([str(PYTHON_EXECUTABLE), "-m", "pip", "install", "-r", "requirements.txt"])
 
-def get_version() -> str:
-    if VERSION_FILE.exists():
-        version = VERSION_FILE.read_text().strip()
-        logging.info(f"Version: {version}")
-        return version
-    logging.warning("No .version file found.")
-    return "Unknown"
-
 def inject_version() -> None:
-    version = get_version()
-    if version == "Unknown":
+    version = os.environ.get("APP_VERSION", "dev")
+    if version == "dev":
         logging.warning("Skipping version injection.")
         return
     if not INIT_FILE.exists():

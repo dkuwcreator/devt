@@ -11,11 +11,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Generator
 
 from sqlalchemy import create_engine
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from devt.config_manager import SCOPE_TO_REGISTRY_DIR
-from devt.package.builder import ToolPackage
 from devt.registry.models import Base, ScriptModel, PackageModel, RepositoryModel
 
 logger = logging.getLogger(__name__)
@@ -362,8 +359,7 @@ class RegistryManager:
     """
     Manages all registry-related operations.
     """
-    def __init__(self, scope: str) -> None:
-        registry_dir = SCOPE_TO_REGISTRY_DIR[scope]
+    def __init__(self, registry_dir: Path) -> None:
         self.engine = create_db_engine(registry_dir)
         self.script_registry = ScriptRegistry(self.engine)
         self.package_registry = PackageRegistry(self.engine)

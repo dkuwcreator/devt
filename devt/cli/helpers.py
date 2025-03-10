@@ -11,15 +11,11 @@ from typing import Any, Dict, Optional, Tuple
 
 import typer
 
-from devt.config_manager import (
-    setup_environment,
-    get_effective_config,
-    configure_global_logging,
-    USER_REGISTRY_DIR,
-    WORKSPACE_REGISTRY_DIR,
-)
+from devt.config_manager import ConfigManager
+from devt.constants import SCOPE_TO_REGISTRY_DIR, WORKSPACE_REGISTRY_DIR
+from devt.init import setup_environment
+from devt.logger_manager import LoggerManager
 from devt.registry.manager import RegistryManager
-from devt.package.manager import PackageManager
 from devt.utils import find_file_type
 
 logger = logging.getLogger(__name__)
@@ -57,7 +53,6 @@ def setup_app_context(
     # Ensure required directories exist and the environment is set up.
     setup_environment()
 
-    # Merge CLI options with persisted configuration.
     runtime_config: Dict[str, Any] = {
         k: v
         for k, v in {
@@ -68,8 +63,12 @@ def setup_app_context(
         }.items()
         if v is not None
     }
-    effective_config = get_effective_config(runtime_config)
-    configure_global_logging(effective_config)
+
+    config_manager = ConfigManager(runtime_config)
+    effective_config = config_manager.to_dict()
+    logger_manager = LoggerManager.from_dict(effective_config)
+
+    # Merge CLI options with persisted configuration.
     logger.info("Effective configuration: %s", effective_config)
 
     # Determine registry directory based on effective scope.
@@ -86,23 +85,13 @@ def setup_app_context(
                 typer.echo("No workspace registry found. Run 'devt workspace init' to create one.")
                 raise typer.Exit(code=1)
     
-    registry_dir: Path = (
-        WORKSPACE_REGISTRY_DIR
-        if effective_scope.lower() == "workspace"
-        else USER_REGISTRY_DIR
-    )
-
-    # Create unified managers.
-    registry: RegistryManager = RegistryManager(effective_scope)
-    pkg_manager: PackageManager = PackageManager(effective_scope)
+    registry_dir = SCOPE_TO_REGISTRY_DIR[effective_scope]
 
     # Store managers and configuration in the Typer context.
     ctx.obj = {
         "config": effective_config,
         "scope": effective_scope,
         "registry_dir": registry_dir,
-        "registry": registry,
-        "pkg_manager": pkg_manager,
     }
            
     logger.info(

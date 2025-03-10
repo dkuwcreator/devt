@@ -16,10 +16,10 @@ import typer
 
 from packaging import version  # used for comparing versions
 from devt import __version__
-from devt.config_manager import APP_NAME
 
 # Import common functions to avoid duplication.
 from devt.common import get_os_suffix, resolve_version, download_file
+from devt.constants import APP_NAME
 
 logger = logging.getLogger(__name__)
 self_app = typer.Typer(help="DevT self management commands")

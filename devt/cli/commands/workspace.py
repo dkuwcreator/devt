@@ -6,9 +6,10 @@ from typing_extensions import Annotated
 import yaml
 from pathlib import Path
 import typer
+from devt.cli.tool_service import ToolService
 from devt.package.builder import PackageBuilder
 from devt.utils import find_file_type
-from devt.config_manager import WORKSPACE_APP_DIR, WORKSPACE_REGISTRY_DIR
+from devt.config_manager import WORKSPACE_APP_DIR
 
 workspace_app = typer.Typer(help="Project-level commands")
 logger = logging.getLogger(__name__)
@@ -47,6 +48,20 @@ def workspace_init(
         raise typer.Exit(code=0)
 
     target_file.write_text(workspace_content)
+    
+    # If a .gitignore file exists in the repository, add a "# DevTools" comment and ".registry" to it if not already present.
+    gitignore_file = Path(".gitignore")
+    if gitignore_file.exists():
+        content = gitignore_file.read_text()
+        append_lines = ""
+        if "# DevTools" not in content:
+            append_lines += "\n# DevTools"
+        if ".registry" not in content:
+            append_lines += "\n.registry"
+        if append_lines:
+            with gitignore_file.open("a") as f:
+                f.write(append_lines)
+    
     typer.echo(
         f"Project initialized successfully with {file_format_lower.upper()} format."
     )
@@ -74,7 +89,7 @@ def workspace_do(
     Executes a script from an installed tool package.
     """
     try:
-        workspace_file = find_file_type("manifest", WORKSPACE_REGISTRY_DIR / "develop" / command)
+        workspace_file = find_file_type("manifest", WORKSPACE_APP_DIR / "develop" / command)
         pb = PackageBuilder(package_path=workspace_file.parent)
         if script_name not in pb.scripts:
             logger.error(f"Script '{script_name}' not found in the workspace package.")
@@ -108,7 +123,7 @@ def workspace_create(
     """
     file_format_lower = file_format.lower()
     if file_format_lower == "json":
-        target_file = WORKSPACE_REGISTRY_DIR / "develop" / command / "manifest.json"
+        target_file = WORKSPACE_APP_DIR / "develop" / command / "manifest.json"
         tool_template = json.dumps(
             {
                 "name": command,
@@ -120,7 +135,7 @@ def workspace_create(
             indent=4,
         )
     else:
-        target_file = WORKSPACE_REGISTRY_DIR / "develop" / command / "manifest.yaml"
+        target_file = WORKSPACE_APP_DIR / "develop" / command / "manifest.yaml"
         tool_template = yaml.dump(
             {
                 "name": command,
@@ -142,78 +157,31 @@ def workspace_create(
     target_file.write_text(tool_template)
     typer.echo(f"Tool '{command}' created successfully with {file_format_lower.upper()} format.")
 
+@workspace_app.command("import")
+def workspace_import(
+    ctx: typer.Context,
+    command: str = typer.Argument(..., help="Name of the tool in the develop folder"),
+    force: bool = typer.Option(False, "--force", help="Force overwrite if the tool already exists"),
+    group: str = typer.Option(None, "--group", help="Custom group name for the tool package (optional)"),
+):
+    """
+    Imports a local tool package from the develop folder.
+    """
+    logger.info("Starting tool import: command=%s, force=%s, group=%s", command, force, group)
+    service = ToolService.from_context(ctx)
+    service.import_tool(WORKSPACE_APP_DIR / "develop" / command, group or "default", force)
+    logger.info("Tool import completed successfully for command: %s", command)
 
-
-# @workspace_app.command("list")
-# def workspace_list():
-#     """
-#     Displays all tools registered in the workspace's workspace.json.
-#     """
-#     workspace_file = Path("workspace.json")
-#     if workspace_file.exists():
-#         typer.echo(workspace_file.read_text())
-#     else:
-#         typer.echo("No workspace.json found. Run 'devt workspace init' first.")
-
-
-# @workspace_app.command("info")
-# def workspace_info():
-#     """
-#     Displays workspace configuration settings.
-#     """
-#     workspace_file = Path("workspace.json")
-#     if workspace_file.exists():
-#         typer.echo(workspace_file.read_text())
-#     else:
-#         typer.echo("No workspace.json found.")
-
-# @workspace_app.command("install")
-# def workspace_install():
-#     """
-#     Installs all tools listed in workspace.json.
-#     """
-#     workspace_file = Path("workspace.json")
-#     if not workspace_file.exists():
-#         typer.echo("No workspace.json found. Run 'devt workspace init' first.")
-#         raise typer.Exit(code=1)
-#     try:
-#         workspace = json.loads(workspace_file.read_text())
-#         tools = workspace.get("tools", [])
-#         for tool in tools:
-#             # This example assumes an existing run_script function accessible from your CLI context.
-#             from devt.cli.main import run_script  # Adjust the import as needed.
-#             run_script(tool, "install", scope="both", extra_args=[])
-#         typer.echo("All workspace tools installed successfully.")
-#     except Exception as e:
-#         typer.echo(f"Failed to install workspace tools: {e}")
-
-# @workspace_app.command("run")
-# def workspace_run(script: str = typer.Argument(..., help="Script name to run globally")):
-#     """
-#     Executes a global script defined in workspace.json.
-#     """
-#     workspace_file = find_file_type("workspace", WORKSPACE_APP_DIR)
-#     if not workspace_file.exists():
-#         typer.echo("No workspace.json found. Run 'devt workspace init' first.")
-#         raise typer.Exit(code=1)
-#     try:
-#         workspace = json.loads(workspace_file.read_text())
-#         scripts = workspace.get("scripts", {})
-#         if script not in scripts:
-#             typer.echo(f"Script '{script}' not found in workspace.json.")
-#             raise typer.Exit(code=1)
-#         typer.echo(f"Executing workspace script: {scripts[script]}")
-#     except Exception as e:
-#         typer.echo(f"Failed to run workspace script: {e}")
-
-# @workspace_app.command("reset")
-# def workspace_reset(force: bool = typer.Option(False, "--force", help="Force removal")):
-#     """
-#     Removes all workspace-level tools.
-#     """
-#     workspace_file = Path("workspace.json")
-#     if workspace_file.exists():
-#         workspace_file.unlink()
-#         typer.echo("Project reset successfully.")
-#     else:
-#         typer.echo("No workspace.json found.")
+@workspace_app.command("customize")
+def workspace_customize(
+    ctx: typer.Context,
+    command: str = typer.Argument(..., help="Name of the tool in the develop folder"),
+    force: bool = typer.Option(False, "--force", help="Force overwrite if the tool already exists"),
+):
+    """
+    Copies a tool package to the develop folder for customization.
+    """
+    logger.info("Starting tool customization: command=%s, force=%s", command, force)
+    service = ToolService.from_context(ctx)
+    service.export_tool(command, WORKSPACE_APP_DIR / "develop", as_zip=False, force=force)
+    logger.info("Tool customization completed successfully for command: %s", command)

@@ -1,12 +1,7 @@
-import inspect
 import logging
-import os
-import subprocess
-import platform
-from pathlib import Path
-
 import typer
 
+from devt.constants import USER_APP_DIR, WORKSPACE_APP_DIR
 from devt.utils import (
     load_json,
     load_manifest,
@@ -17,172 +12,73 @@ from devt.utils import (
 
 logger = logging.getLogger(__name__)
 
-# Application Constants
-APP_NAME = os.environ.get("APP_NAME", "devt")
-REGISTRY_FILE_NAME = "registry.json"
-WORKSPACE_FILE_NAME = "workspace.json"
+class ConfigManager:
+    CONFIG_FILE = USER_APP_DIR / "config.json"
+    DEFAULT_CONFIG = {
+        "scope": "user",
+        "log_level": "WARNING",
+        "log_format": "default",
+        "auto_sync": True,
+    }
 
-# Default Global Configuration
-DEFAULT_CONFIG = {
-    "scope": "user",
-    "log_level": "WARNING",
-    "log_format": "default",
-    "auto_sync": True,
-}
+    def to_dict(self) -> dict:
+        return self.effective_config
 
-# Directories and Files (User)
-USER_APP_DIR = Path(typer.get_app_dir(f".{APP_NAME}"))
-USER_REGISTRY_DIR = USER_APP_DIR / "registry"
-CONFIG_FILE = USER_APP_DIR / "config.json"
-ENV_USER_APP_DIR = f"{APP_NAME.upper()}_USER_APP_DIR"
+    def __init__(self, runtime_options: dict = None):
+        self.runtime_options = runtime_options or {}
+        self.user_config = self.load_user_config()
+        self.workspace_config = self.load_workspace_config()
+        self.effective_config = merge_configs(self.user_config, self.workspace_config, self.runtime_options)
 
-# Directories and Files (Workspace)
-WORKSPACE_APP_DIR = Path.cwd()
-WORKSPACE_REGISTRY_DIR = WORKSPACE_APP_DIR / ".registry"
-WORKSPACE_REGISTRY_FILE = WORKSPACE_REGISTRY_DIR / REGISTRY_FILE_NAME
-
-# Temporary directory
-TEMP_DIR = os.environ.get("TEMP", "/tmp")
-ENV_WORKSPACE_DIR = f"{APP_NAME.upper()}_WORKSPACE_APP_DIR"
-ENV_TOOL_DIR = f"{APP_NAME.upper()}_TOOL_DIR"
-
-SCOPE_TO_REGISTRY_DIR = {
-    "user": USER_REGISTRY_DIR,
-    "workspace": WORKSPACE_REGISTRY_DIR,
-}
-
-
-def set_user_environment_var(name: str, value: str) -> None:
-    """
-    Persists a user environment variable across sessions in a cross-platform way.
-    """
-    system = platform.system()
-
-    try:
-        if system == "Windows":
-            import winreg
-
-            with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
-            ) as key:
-                winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
-            logger.debug("Set user environment variable on Windows: %s=%s", name, value)
-
-        elif system in ["Linux", "Darwin"]:  # Darwin is macOS
-            bashrc_path = os.path.expanduser("~/.bashrc")
-            zshrc_path = os.path.expanduser("~/.zshrc")
-            export_command = f'export {name}="{value}"\n'
-
-            # Export variable in the shell profile, but only if not already present
-            for rc_path in [bashrc_path, zshrc_path]:
-                if os.path.exists(rc_path):
-                    with open(rc_path, "r") as f:
-                        content = f.read()
-                    if export_command.strip() not in content:
-                        with open(rc_path, "a") as f:
-                            f.write(export_command)
-
-            # Also set it for the current session
-            os.environ[name] = value
-
-            logger.debug(
-                "Set user environment variable on Linux/macOS: %s=%s", name, value
-            )
+    def load_user_config(self) -> dict:
+        """
+        Creates or updates the persistent user configuration file.
+        """
+        if not self.CONFIG_FILE.exists():
+            save_json(self.CONFIG_FILE, self.DEFAULT_CONFIG)
+            logger.debug("Created configuration file at %s", self.CONFIG_FILE)
         else:
-            logger.warning(
-                "Unsupported OS: %s. Cannot persist environment variable.", system
-            )
+            config = load_json(self.CONFIG_FILE)
+            updated = merge_configs(self.DEFAULT_CONFIG, config)
+            save_json(self.CONFIG_FILE, updated)
+            logger.debug("Updated configuration file at %s", self.CONFIG_FILE)
+        return load_json(self.CONFIG_FILE)
 
-    except Exception as e:
-        logger.error("Failed to set user environment variable %s: %s", name, e)
+    def load_workspace_config(self) -> dict:
+        """
+        Loads workspace configuration from a manifest file.
+        """
+        workspace_config = {}
+        workspace_file = find_file_type("manifest", WORKSPACE_APP_DIR)
+        if workspace_file:
+            try:
+                workspace_data = load_manifest(workspace_file)
+                workspace_config = workspace_data.get("config", {})
+                logger.debug("Loaded workspace configuration: %s", workspace_config)
+            except Exception as e:
+                typer.echo(f"Error loading workspace config: {e}")
+                logger.error("Error loading workspace config from %s: %s", workspace_file, e)
+        else:
+            logger.debug("No workspace manifest found; using empty workspace configuration.")
+        return workspace_config
 
+    def set_config_value(self, key: str, value) -> None:
+        """
+        Sets a configuration value and updates the persistent user config file.
+        """
+        self.user_config[key] = value
+        save_json(self.CONFIG_FILE, self.user_config)
+        self.effective_config = merge_configs(self.user_config, self.workspace_config, self.runtime_options)
+        logger.debug("Set config key '%s' to '%s'.", key, value)
 
-def create_directories() -> None:
-    """
-    Creates the necessary directories for the application.
-    """
-    USER_APP_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def initialize_user_config() -> None:
-    """
-    Creates or updates the persistent user configuration file.
-    """
-    if not CONFIG_FILE.exists():
-        save_json(CONFIG_FILE, DEFAULT_CONFIG)
-        logger.debug("Created configuration file at %s", CONFIG_FILE)
-    else:
-        config = load_json(CONFIG_FILE)
-        updated = merge_configs(DEFAULT_CONFIG, config)
-        save_json(CONFIG_FILE, updated)
-        logger.debug("Updated configuration file at %s", CONFIG_FILE)
-
-
-def setup_environment() -> None:
-    """
-    Prepares the environment: creates directories, sets essential environment variables,
-    and ensures the user configuration file is initialized.
-    """
-    create_directories()
-    os.environ[ENV_USER_APP_DIR] = str(USER_APP_DIR)
-    os.environ[ENV_WORKSPACE_DIR] = str(WORKSPACE_APP_DIR)
-    # set_user_environment_var(ENV_USER_APP_DIR, str(USER_APP_DIR))
-    # set_user_environment_var(ENV_WORKSPACE_DIR, str(WORKSPACE_APP_DIR))
-    initialize_user_config()
-    logger.debug("Environment variables set successfully.")
-
-
-# Dynamically extract allowed arguments for subprocess methods
-RUN_KEYS = set(inspect.signature(subprocess.run).parameters.keys())
-POPEN_KEYS = set(inspect.signature(subprocess.Popen).parameters.keys())
-SUBPROCESS_ALLOWED_KEYS = RUN_KEYS | POPEN_KEYS
-
-
-def get_effective_config(runtime_options: dict) -> dict:
-    """
-    Merges default, user, workspace, and runtime configurations into an effective configuration.
-    """
-    logger.debug("Merging configurations for effective config.")
-    setup_environment()
-    user_config = load_json(CONFIG_FILE)
-    logger.debug("Loaded user configuration: %s", user_config)
-
-    workspace_config = {}
-    workspace_file = find_file_type("manifest", WORKSPACE_APP_DIR)
-    if workspace_file:
-        try:
-            workspace_data = load_manifest(workspace_file)
-            workspace_config = workspace_data.get("config", {})
-            logger.debug("Loaded workspace configuration: %s", workspace_config)
-        except Exception as e:
-            typer.echo(f"Error loading workspace config: {e}")
-            logger.error(
-                "Error loading workspace config from %s: %s", workspace_file, e
-            )
-    else:
-        logger.debug(
-            "No workspace manifest found; using empty workspace configuration."
-        )
-
-    logger.debug("Runtime options: %s", runtime_options)
-    logger.debug("User configuration: %s", user_config)
-    logger.debug("Workspace configuration: %s", workspace_config)
-
-    return merge_configs(user_config, workspace_config, runtime_options)
-
-
-def configure_global_logging(effective_config: dict) -> None:
-    """
-    Sets up global logging based on the provided configuration.
-    """
-    log_level = effective_config.get("log_level", "WARNING")
-    log_format = effective_config.get("log_format", "default")
-    logger.info(
-        "Configuring global logging with level: %s, format: %s", log_level, log_format
-    )
-
-    from devt.logger_manager import configure_logging, configure_formatter
-
-    configure_logging(log_level)
-    configure_formatter(log_format)
-    logger.info("Global logging configured.")
+    def remove_config_key(self, key: str) -> None:
+        """
+        Removes a configuration key from the persistent user config file.
+        """
+        if key in self.user_config:
+            del self.user_config[key]
+            save_json(self.CONFIG_FILE, self.user_config)
+            self.effective_config = merge_configs(self.user_config, self.workspace_config, self.runtime_options)
+            logger.debug("Removed config key '%s'.", key)
+        else:
+            logger.debug("Config key '%s' not found; no changes made.", key)

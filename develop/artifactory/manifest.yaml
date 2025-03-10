@@ -3,7 +3,10 @@ description: Artifactory is a universal artifact repository manager.
 command: artifactory
 
 scripts:
+    cwd: workspace
     put:
-        cwd: workspace
-        windows: script/put_package.ps1
-        posix: script/put_package.sh
+        windows: ./script/put_folder.ps1
+        posix: ./script/put_folder.sh
+    zip:
+        windows: ./script/zip_folder.ps1
+        posix: ./script/zip_folder.sh
