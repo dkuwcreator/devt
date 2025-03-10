@@ -1,5 +1,6 @@
 import logging
 import typer
+from typing import List
 
 from devt.constants import USER_APP_DIR, WORKSPACE_APP_DIR
 from devt.utils import (
@@ -75,11 +76,49 @@ class ConfigManager:
     def update_config(self, **kwargs) -> None:
         """
         Updates multiple configuration keys at once.
-        Only non-None values in kwargs are updated.
         """
         for key, value in kwargs.items():
             if value is not None:
                 self.set_config_value(key, value)
+
+    def update_config_from_list(self, options: List[str]) -> dict:
+        """
+        Parses and updates configuration from a list of KEY=VALUE strings.
+        Returns a dictionary of updated configuration options.
+        Raises ValueError on parsing or validation errors.
+        """
+        updates = {}
+        for option in options:
+            if "=" not in option:
+                raise ValueError(f"Invalid format: '{option}'. Expected KEY=VALUE.")
+            key, value = option.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+
+            if key not in self.DEFAULT_CONFIG:
+                raise ValueError(f"Unknown configuration key: '{key}'")
+
+            default_val = self.DEFAULT_CONFIG[key]
+            try:
+                if isinstance(default_val, bool):
+                    value_lower = value.lower()
+                    if value_lower in ["true", "1", "yes"]:
+                        value = True
+                    elif value_lower in ["false", "0", "no"]:
+                        value = False
+                    else:
+                        raise ValueError("Expected a boolean value (true/false).")
+                elif isinstance(default_val, int):
+                    value = int(value)
+                # For strings, no conversion is needed.
+            except Exception as e:
+                raise ValueError(f"Error converting value for '{key}': {e}")
+
+            updates[key] = value
+
+        if updates:
+            self.update_config(**updates)
+        return updates
 
     def remove_config_key(self, key: str) -> None:
         """

@@ -10,34 +10,27 @@ config_app = typer.Typer(help="Configuration commands")
 
 @config_app.command("set")
 def set_config(
-    scope: str = typer.Option(None, help="Persisted scope for future sessions: user or workspace."),
-    log_level: str = typer.Option(None, help="Persisted log level for future sessions (DEBUG, INFO, WARNING, ERROR)."),
-    log_format: str = typer.Option(None, help="Persisted log format for future sessions: default or detailed."),
-    auto_sync: bool = typer.Option(None, help="Enable background auto-sync for repositories."),
+    options: List[str] = typer.Argument(
+        ...,
+        help="One or more configuration options in the KEY=VALUE format. Example: scope=user log_level=DEBUG"
+    )
 ):
     """
-    Persists configuration settings for future sessions.
-    Only provided options will be updated.
+    Updates one or more configuration settings by parsing KEY=VALUE pairs.
     """
     manager = ConfigManager()
-    # Build a dictionary of the provided (non-None) options.
-    updates = {}
-    if scope:
-        updates["scope"] = scope
-    if log_level:
-        updates["log_level"] = log_level
-    if log_format:
-        updates["log_format"] = log_format
-    if auto_sync is not None:
-        updates["auto_sync"] = auto_sync
-
+    try:
+        updates = manager.update_config_from_list(options)
+    except ValueError as err:
+        typer.echo(f"Error: {err}")
+        raise typer.Exit(1)
     if updates:
-        manager.update_config(**updates)
-        typer.echo("Configuration settings have been persisted for future sessions.")
+        typer.echo("Configuration settings have been updated:")
+        for key, value in updates.items():
+            typer.echo(f"  {key} = {value}")
         logger.info("Updated configuration: %s", updates)
     else:
-        typer.echo("No configuration options provided to update.")
-        logger.info("No configuration changes were made.")
+        typer.echo("No valid configuration options provided.")
 
 
 @config_app.command("get")
