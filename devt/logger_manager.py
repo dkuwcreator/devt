@@ -11,6 +11,7 @@ class LoggerManager:
         "ERROR": logging.ERROR,
     }
 
+    @classmethod
     def from_dict(cls, config: dict) -> "LoggerManager":
         return cls(
             log_level=config.get("log_level", "WARNING"),
@@ -27,7 +28,9 @@ class LoggerManager:
         # Configure logger.
         self.configure_logging(log_level)
         self.configure_formatter(format_type)
-        logger.debug("Logger initialized.")
+        logger.debug("Logger initialized with log level '%s'.", log_level)
+        logger.debug("Logging to file: %s", self.log_file)
+        logger.debug("Logs directory: %s", self.logs_dir)
         
     def configure_logging(self, log_level: str) -> None:
         level = self.LOG_LEVELS.get(log_level.upper(), logging.WARNING)

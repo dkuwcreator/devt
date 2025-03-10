@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import List
 import typer
 
 from devt.config_manager import ConfigManager

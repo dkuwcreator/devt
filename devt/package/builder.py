@@ -10,9 +10,9 @@ import os
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from devt.config_manager import SUBPROCESS_ALLOWED_KEYS
+from devt.constants import SUBPROCESS_ALLOWED_KEYS
 from devt.utils import merge_configs, find_file_type
 from .utils import load_and_validate_manifest, merge_global_and_script_configs
 from .script import Script
@@ -114,7 +114,6 @@ class PackageBuilder:
         """
         logger.debug("Retrieving script entry for key: %s", script_key)
         base_config = dict(scripts)
-        print(base_config)
         CURRENT_OS = "windows" if os.name == "nt" else "posix"
         if CURRENT_OS in base_config and script_key in base_config[CURRENT_OS]:
             logger.debug("Merging OS-specific settings for script '%s'.", script_key)

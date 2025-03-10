@@ -18,10 +18,11 @@ def set_env(
     """
     env_path = Path(env_file)
     if not env_path.exists():
-        typer.echo(f"{env_file} does not exist. Creating a new one.")
+        logger.info(f"{env_file} does not exist. Creating a new one.")
         env_path.touch()
     set_key(str(env_path), key, value)
-    typer.echo(f"Set {key}={value} in {env_file}")
+    logger.info(f"Set {key}={value} in {env_file}")
+
 
 @env_app.command("see")
 def see_env(
@@ -33,9 +34,10 @@ def see_env(
     """
     val = get_key(str(env_file), key)
     if val is None:
-        typer.echo(f"{key} not found in {env_file}")
+        logger.info(f"{key} not found in {env_file}")
     else:
-        typer.echo(f"{key}={val}")
+        logger.info(f"{key}={val}")
+
 
 @env_app.command("remove")
 def remove_env(
@@ -46,10 +48,10 @@ def remove_env(
     Remove an environment variable from the dotenv file.
     """
     if get_key(str(env_file), key) is None:
-        typer.echo(f"{key} not found in {env_file}")
+        logger.info(f"{key} not found in {env_file}")
     else:
         unset_key(str(env_file), key)
-        typer.echo(f"Removed {key} from {env_file}")
+        logger.info(f"Removed {key} from {env_file}")
 
 if __name__ == "__main__":
     env_app()

@@ -7,7 +7,8 @@ import tempfile
 from typing import Any, Dict, List, Optional, Union
 import logging
 
-from devt.config_manager import ENV_TOOL_DIR, SUBPROCESS_ALLOWED_KEYS
+from devt.constants import SUBPROCESS_ALLOWED_KEYS
+
 from .utils import build_command_tokens
 
 logger = logging.getLogger(__name__)

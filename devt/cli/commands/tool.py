@@ -4,7 +4,7 @@ from typing import Optional
 import typer
 import logging
 
-from devt.config_manager import APP_NAME
+from devt.constants import APP_NAME
 from devt.utils import print_table
 
 from devt.cli.tool_service import ToolService

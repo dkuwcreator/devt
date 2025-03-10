@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from git import Repo
-from devt.config_manager import USER_REGISTRY_DIR
+from devt.constants import USER_REGISTRY_DIR
 from devt.utils import on_exc  # Requires GitPython: pip install GitPython
 
 logger = logging.getLogger(__name__)
