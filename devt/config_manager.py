@@ -12,6 +12,7 @@ from devt.utils import (
 
 logger = logging.getLogger(__name__)
 
+
 class ConfigManager:
     CONFIG_FILE = USER_APP_DIR / "config.json"
     DEFAULT_CONFIG = {
@@ -21,18 +22,18 @@ class ConfigManager:
         "auto_sync": True,
     }
 
+    def __init__(self, runtime_options: dict = None):
+        self.runtime_options = runtime_options or {}
+        self.workspace_config = self.load_workspace_config()
+        self.user_config = self.load_user_config()
+        self.effective_config = merge_configs(self.user_config, self.workspace_config, self.runtime_options)
+
     def to_dict(self) -> dict:
         return self.effective_config
 
-    def __init__(self, runtime_options: dict = None):
-        self.runtime_options = runtime_options or {}
-        self.user_config = self.load_user_config()
-        self.workspace_config = self.load_workspace_config()
-        self.effective_config = merge_configs(self.user_config, self.workspace_config, self.runtime_options)
-
     def load_user_config(self) -> dict:
         """
-        Creates or updates the persistent user configuration file.
+        Creates (if needed) and updates the persistent user configuration file.
         """
         if not self.CONFIG_FILE.exists():
             save_json(self.CONFIG_FILE, self.DEFAULT_CONFIG)
@@ -64,12 +65,21 @@ class ConfigManager:
 
     def set_config_value(self, key: str, value) -> None:
         """
-        Sets a configuration value and updates the persistent user config file.
+        Sets a single configuration value and updates the persistent user config file.
         """
         self.user_config[key] = value
         save_json(self.CONFIG_FILE, self.user_config)
         self.effective_config = merge_configs(self.user_config, self.workspace_config, self.runtime_options)
         logger.debug("Set config key '%s' to '%s'.", key, value)
+
+    def update_config(self, **kwargs) -> None:
+        """
+        Updates multiple configuration keys at once.
+        Only non-None values in kwargs are updated.
+        """
+        for key, value in kwargs.items():
+            if value is not None:
+                self.set_config_value(key, value)
 
     def remove_config_key(self, key: str) -> None:
         """
@@ -82,3 +92,12 @@ class ConfigManager:
             logger.debug("Removed config key '%s'.", key)
         else:
             logger.debug("Config key '%s' not found; no changes made.", key)
+
+    def reset(self) -> None:
+        """
+        Resets the user configuration to its default values.
+        """
+        save_json(self.CONFIG_FILE, self.DEFAULT_CONFIG)
+        self.user_config = self.DEFAULT_CONFIG.copy()
+        self.effective_config = merge_configs(self.user_config, self.workspace_config, self.runtime_options)
+        logger.debug("Configuration reset to default values: %s", self.DEFAULT_CONFIG)
