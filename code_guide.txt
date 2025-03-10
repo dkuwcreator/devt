@@ -32,9 +32,3 @@ I would like to improve my code, but i want to do it in steps. Here are some bro
 ```.
 
 I will give you code (full scripts or snippets) and I want you to analyze the code and determine the area to focus on first and also to define sections of code to focus on instead of updating the whole code. Do you understand?
-
-function hist {
-    param([Parameter(ValueFromRemainingArguments=$true)]$find) 
-    Write-Host "Finding in full history using pattern '*$find*'"
-    $h=Get-Content (Get-PSReadlineOption).HistorySavePath|?{"$_" -like "*$find*"}|Get-Unique; [Array]::Reverse($h); $h|more
-}
