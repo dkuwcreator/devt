@@ -23,15 +23,15 @@ def set_config(
     try:
         updates = manager.update_config_from_list(options)
     except ValueError as err:
-        typer.echo(f"Error: {err}")
+        logger.error("Error: %s", err)
         raise typer.Exit(1)
     if updates:
-        typer.echo("Configuration settings have been updated:")
+        logger.info("Configuration settings have been updated:")
         for key, value in updates.items():
-            typer.echo(f"  {key} = {value}")
+            logger.info("  %s = %s", key, value)
         logger.info("Updated configuration: %s", updates)
     else:
-        typer.echo("No valid configuration options provided.")
+        logger.info("No valid configuration options provided.")
 
 
 @config_app.command("get")
@@ -42,12 +42,12 @@ def get_config():
     manager = ConfigManager()
     current_config = manager.to_dict()
     if not current_config:
-        typer.echo("No configuration found. Please set configuration using 'config set'.")
+        logger.warning("No configuration found. Please set configuration using 'config set'.")
         logger.warning("No configuration found.")
     else:
-        typer.echo("Current configuration:")
+        logger.info("Current configuration:")
         for key, value in current_config.items():
-            typer.echo(f"{key}: {value}")
+            logger.info("%s: %s", key, value)
         logger.info("Current configuration: %s", current_config)
 
 
@@ -58,7 +58,7 @@ def reset_config():
     """
     manager = ConfigManager()
     manager.reset()
-    typer.echo("Configuration has been reset to default values.")
+    logger.info("Configuration has been reset to default values.")
     logger.info("Configuration reset complete.")
 
 
@@ -70,5 +70,5 @@ def show_config():
     manager = ConfigManager()
     current_config = manager.to_dict()
     pretty_config = json.dumps(current_config, indent=4)
-    typer.echo(pretty_config)
+    logger.info(pretty_config)
     logger.info("Configuration shown: %s", current_config)
