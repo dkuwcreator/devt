@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+"""
+devt/cli/sync_service.py
+
+Synchronization Manager
+
+Provides methods to synchronize repositories and tools in the background.
+"""
 import concurrent.futures
 from pathlib import Path
 import threading
@@ -12,14 +20,15 @@ from devt.repo_manager import RepoManager
 
 logger = logging.getLogger(__name__)
 
+
 class SyncManager:
-    SYNC_INTERVAL = 60
+    SYNC_INTERVAL = 300  # 5 minutes
 
     @classmethod
     def from_context(cls, ctx: typer.Context) -> "SyncManager":
         scope = ctx.obj.get("scope")
         return cls(SCOPE_TO_REGISTRY_DIR[scope])
-    
+
     def __init__(self, registry_dir: Path) -> None:
         self.registry = RegistryManager(registry_dir)
         self.pkg_manager = PackageManager(registry_dir)
@@ -34,18 +43,20 @@ class SyncManager:
         repo_name = repo["name"]
         logger.info("Starting sync for repository '%s' located at %s", repo_name, repo["location"])
         updated_dir, current_branch, changes_made = self.repo_manager.sync_repo(repo["location"])
-        logger.debug("Sync result for '%s': updated_dir=%s, branch=%s, changes_made=%s",
-                     repo_name, updated_dir, current_branch, changes_made)
+        logger.debug(
+            "Sync result for '%s': updated_dir=%s, branch=%s, changes_made=%s",
+            repo_name,
+            updated_dir,
+            current_branch,
+            changes_made,
+        )
 
         if not changes_made and not force:
             logger.info("No changes detected for '%s'; skipping update.", repo_name)
             return
 
-        try:
-            logger.info("Importing tools from updated directory: %s", updated_dir)
-            self.tool_service.overwrite_tool(updated_dir, repo_name, True)
-        except Exception as e:
-            logger.error("Error syncing repository '%s': %s", repo_name, e)
+        logger.info("Importing tools from updated directory: %s", updated_dir)
+        self.tool_service.overwrite_tool(updated_dir, repo_name, True)
 
     def sync_all_repositories(self, force: bool = False) -> None:
         """
@@ -67,19 +78,20 @@ class SyncManager:
 
             for future in future_to_repo.keys():
                 repo_name = future_to_repo[future]
-                try:
-                    future.result()
-                    logger.info("Auto-synced repository: %s", repo_name)
-                except Exception as e:
-                    logger.error("Failed to auto-sync repository '%s': %s", repo_name, e)
+                # Exceptions will bubble up if any occur inside sync_single_repository
+                future.result()
+                logger.info("Auto-synced repository: %s", repo_name)
 
-    def start_background_sync(self) -> None:
+    def start_background_sync(self, subcommand: str) -> None:
         """
         Start a thread to perform background auto-sync if enough time has passed.
         """
         now = time.time()
         if now - self.last_sync_time < self.SYNC_INTERVAL:
-            logger.debug("Background sync throttled. Time since last sync: %.2f seconds.", now - self.last_sync_time)
+            logger.debug(
+                "Background sync throttled. Time since last sync: %.2f seconds.",
+                now - self.last_sync_time,
+            )
             return
 
         self.last_sync_time = now
@@ -90,7 +102,9 @@ class SyncManager:
             self.sync_all_repositories()
             logger.info("Background sync completed.")
 
-        thread = threading.Thread(target=run_sync, daemon=False)  # daemon=False ensures it runs to completion
+        thread = threading.Thread(target=run_sync, daemon=False)
         thread.start()
-        thread.join()  # Waits for completion before returning
+        logger.debug("Background sync started for subcommand: %s", subcommand)
+        if subcommand == "run" or subcommand == "tool":
+            thread.join()
         logger.info("Background sync completed and joined.")

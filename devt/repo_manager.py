@@ -1,5 +1,8 @@
+#!/usr/bin/env python3
 """
-repo_manager.py
+devt/repo_manager.py
+
+Repository Manager
 
 Provides a RepoManager class to add, sync, and remove repositories in a dedicated
 'repos' folder. Repositories managed here can later be imported locally by the tool,

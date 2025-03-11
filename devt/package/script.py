@@ -1,3 +1,13 @@
+#!/usr/bin/env python
+"""
+devt/package/script.py
+
+Script Execution
+
+Provides a class to represent a script defined in a package manifest, and execute
+it using subprocess.run() with the prepared arguments.
+"""
+
 import json
 import os
 import shlex
@@ -7,17 +17,54 @@ import tempfile
 from typing import Any, Dict, List, Optional, Union
 import logging
 
-from devt.constants import SUBPROCESS_ALLOWED_KEYS
+from dotenv import load_dotenv
 
+from devt.cli.commands.env import resolve_env_file
+from devt.constants import SUBPROCESS_ALLOWED_KEYS
 from .utils import build_command_tokens
 
 logger = logging.getLogger(__name__)
+
+
+def get_path_from_registry() -> str:
+    """Retrieve the System PATH first, then the User PATH, preserving their order."""
+    import winreg
+
+    system_path, user_path = "", ""
+
+    try:
+        # Retrieve System PATH from registry (global for all users)
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            0,
+            winreg.KEY_READ,
+        ) as system_key:
+            system_path, _ = winreg.QueryValueEx(system_key, "Path")
+    except FileNotFoundError:
+        pass  # No system path found, continue
+
+    try:
+        # Retrieve User PATH from registry (specific to current user)
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_READ
+        ) as user_key:
+            user_path, _ = winreg.QueryValueEx(user_key, "Path")
+    except FileNotFoundError:
+        pass  # No user path found, continue
+
+    # Merge while keeping order (System PATH first, then User PATH)
+    all_paths = list(
+        dict.fromkeys(system_path.split(";") + user_path.split(";"))
+    ) # Remove duplicates
+    return ";".join(filter(None, all_paths))
 
 
 class CommandExecutionError(Exception):
     """
     Custom exception for wrapping command execution errors.
     """
+
     def __init__(
         self,
         message: str,
@@ -30,6 +77,7 @@ class CommandExecutionError(Exception):
         self.stdout = stdout
         self.stderr = stderr
 
+
 # Path mapping for common working directories
 CWD_PATH_MAPPING = {
     "workspace": Path.cwd(),
@@ -37,11 +85,13 @@ CWD_PATH_MAPPING = {
     "temp": Path(tempfile.gettempdir()),
 }
 
+
 class Script:
     """
     Represents a command (or script) defined in a package manifest.
     Provides functionality to build its final command string and execute it.
     """
+
     def __init__(
         self,
         args: Union[str, List[str]],
@@ -56,42 +106,67 @@ class Script:
         self.env = env or {}
         # Filter kwargs based on allowed keys
         self.kwargs = {k: v for k, v in kwargs.items() if k in SUBPROCESS_ALLOWED_KEYS}
+        logger.debug("Script instance created: %s", self.__dict__)
 
     def _map_cwd(self, cwd_value: Union[Path, str]) -> Path:
         """
         Map the script's working directory to a common value if provided.
         """
-        if isinstance(cwd_value, str) and cwd_value in CWD_PATH_MAPPING:
-            return CWD_PATH_MAPPING[cwd_value]
+        if isinstance(cwd_value, str):
+            parts = cwd_value.split('/', 1)
+            base_key = parts[0]
+            if base_key in CWD_PATH_MAPPING:
+                base_path = CWD_PATH_MAPPING[base_key]
+                if len(parts) == 2:
+                    return base_path / parts[1]
+                return base_path
         return Path(cwd_value)
-        
 
     def resolve_cwd(self, base_dir: Path, auto_create: bool = False) -> Path:
         """
         Resolve the script's working directory relative to base_dir.
         """
-        resolved = self.cwd if self.cwd.is_absolute() else (base_dir / self.cwd).resolve()
+        resolved = (
+            self.cwd if self.cwd.is_absolute() else (base_dir / self.cwd).resolve()
+        )
         if not (str(resolved).startswith(str(Path.home()))):
-            raise ValueError("Relative path cannot be resolved outside the home directory.")
+            raise ValueError(
+                "Relative path cannot be resolved outside the home directory."
+            )
         if not resolved.exists():
             if auto_create:
                 logger.info("Auto-creating missing working directory '%s'.", resolved)
                 resolved.mkdir(parents=True, exist_ok=True)
             else:
                 logger.error("Working directory '%s' does not exist.", resolved)
-                raise FileNotFoundError(f"Working directory '{resolved}' does not exist.")
+                raise FileNotFoundError(
+                    f"Working directory '{resolved}' does not exist."
+                )
         if not resolved.is_dir():
             logger.error("Resolved path '%s' is not a directory.", resolved)
             raise NotADirectoryError(f"Resolved path '{resolved}' is not a directory.")
         logger.debug("Resolved working directory: %s", resolved)
         return resolved
 
-    def resolve_env(self, base_dir: Path) -> Dict[str, str]:
+    def resolve_env(self) -> Dict[str, str]:
         """
         Merge the current environment with the script's environment.
         """
-        os.environ[ENV_TOOL_DIR] = str(base_dir)
+
+        # 1) Load environment variables from .env in base_dir
+        dotenv_path = resolve_env_file()
+        if dotenv_path.is_file():
+            logger.debug("Loading environment variables from %s", dotenv_path)
+            load_dotenv(dotenv_path=dotenv_path)
+
+        # 2) Merge them with self.env
         env = {**os.environ, **self.env} if self.env is not None else os.environ.copy()
+
+        # 3) Update PATH on Windows with the latest System & User PATH from registry
+        if os.name == 'nt':
+            env["PATH"] = get_path_from_registry()
+            logger.debug("Updated PATH from registry (System first, User second): %s", env["PATH"])
+
         logger.debug("Resolved environment variables.")
         return env
 
@@ -134,7 +209,7 @@ class Script:
         is_posix = not is_windows
 
         resolved_cwd = self.resolve_cwd(base_dir, auto_create=auto_create_cwd)
-        env = self.resolve_env(base_dir)
+        env = self.resolve_env()
 
         shell = shell if shell is not None else self.shell
 
@@ -142,19 +217,16 @@ class Script:
             self.args, shell, extra_args, is_windows, is_posix
         )
         if shell == "":
-            command_str = ' '.join(final_tokens)
+            command_str = " ".join(final_tokens)
         else:
             command_str = (
-                subprocess.list2cmdline(final_tokens) if is_windows else shlex.join(final_tokens)
+                subprocess.list2cmdline(final_tokens)
+                if is_windows
+                else shlex.join(final_tokens)
             )
         logger.debug("Prepared command string: %s", command_str)
 
-        final_config = {
-            "args": command_str,
-            "cwd": str(resolved_cwd),
-            "env": env,
-            "shell": True,  # Always run with shell=True as per design.
-        }
+        final_config = {"args": command_str, "cwd": str(resolved_cwd), "env": env, "shell": False}
         final_config.update(self.kwargs)
         logger.debug("Final subprocess configuration prepared.")
         return final_config
@@ -177,14 +249,21 @@ class Script:
         logger.info("Environment variables: %s", self.env)
         logger.debug("Full subprocess configuration: %s", json.dumps(config, indent=3))
         result = subprocess.run(**config)
+
         if result.returncode != 0:
             # Try a fallback execution without shell wrapper
             fallback_config = self.prepare_subprocess_args(
-                base_dir, shell="", extra_args=extra_args, auto_create_cwd=auto_create_cwd
+                base_dir,
+                shell="",
+                extra_args=extra_args,
+                auto_create_cwd=auto_create_cwd,
             )
+            fallback_config["shell"] = True
             logger.info("Executing fallback command: %s", fallback_config["args"])
-            logger.debug("Fallback subprocess configuration: %s", fallback_config)
+            logger.debug("Fallback subprocess configuration: %s", json.dumps(fallback_config, indent=
+3))
             result = subprocess.run(**fallback_config)
+
         if result.returncode != 0:
             logger.error("Command failed with return code %d", result.returncode)
             raise CommandExecutionError(
@@ -193,5 +272,4 @@ class Script:
                 stdout=getattr(result, "stdout", None),
                 stderr=getattr(result, "stderr", None),
             )
-        logger.info("Command executed successfully with return code %d", result.returncode)
         return result

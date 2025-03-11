@@ -1,5 +1,22 @@
+#!/usr/bin/env python3
+"""
+devt/logger_manager.py
+
+Logger Manager
+
+Provides a class to manage the application's logging configuration.
+"""
 import logging
 from devt.config_manager import USER_APP_DIR
+
+class SafeFileHandler(logging.FileHandler):
+    """A FileHandler that gracefully handles OSError exceptions."""
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except OSError:
+            # Ignore the error silently.
+            pass
 
 class LoggerManager:
     LOG_LEVELS = {
@@ -44,13 +61,22 @@ class LoggerManager:
         
     def configure_formatter(self, format_type: str = "default") -> None:
         if format_type == "detailed":
+            # Detailed format includes an absolute file path for clickable links.
             formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                "%(asctime)s [%(levelname)s] %(pathname)s:%(lineno)d - %(funcName)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S"
+            )
+        elif format_type == "verbose":
+            # Verbose format: using module name instead.
+            formatter = logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(module)s:%(lineno)d - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S"
             )
         else:
+            # Minimal/default format: log level and message.
             formatter = logging.Formatter("%(levelname)s: %(message)s")
         
-        file_handler = logging.FileHandler(self.log_file)
+        file_handler = SafeFileHandler(self.log_file)
         stream_handler = logging.StreamHandler()
         
         file_handler.setFormatter(formatter)

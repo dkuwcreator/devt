@@ -1,3 +1,12 @@
+#!/usr/bin/env python3
+"""
+devt/cli/commands/tool.py
+
+DevT Tool Commands
+
+Provides commands to import, list, show, remove, move, export, and sync tool packages.
+"""
+
 from pathlib import Path
 from typing import Optional
 
@@ -5,30 +14,18 @@ import typer
 import logging
 
 from devt.constants import APP_NAME
+# Removed: from devt.error_wrapper import handle_errors
 from devt.utils import print_table
-
 from devt.cli.tool_service import ToolService
 
 logger = logging.getLogger(__name__)
 tool_app = typer.Typer(help="Tool management commands")
 
 
-def handle_errors(func):
-    import functools
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            logger.exception("An error occurred in %s:", func.__name__)
-            typer.echo(f"An error occurred: {e}")
-            raise typer.Exit(code=1)
-
-    return wrapper
-
-
 def print_tool_summary(tool: dict) -> None:
+    """
+    Display a brief summary for a single tool (used in read-only contexts).
+    """
     typer.echo(
         f"Command:     {tool.get('command')}\n"
         f"Name:        {tool.get('name')}\n"
@@ -41,6 +38,9 @@ def print_tool_summary(tool: dict) -> None:
 
 
 def print_tool_details(tool: dict) -> None:
+    """
+    Display detailed information for a single tool (used in read-only contexts).
+    """
     border = "=" * 60
     typer.secho(border, fg="bright_blue")
     typer.secho(" TOOL INFORMATION ".center(60, " "), fg="bright_blue", bold=True)
@@ -55,6 +55,9 @@ def print_tool_details(tool: dict) -> None:
 
 
 def print_script_info(tool_command: str, script_name: str, script: dict) -> None:
+    """
+    Display information about a specific script within a tool (used in read-only contexts).
+    """
     script_border = "-" * 60
     typer.secho(script_border, fg="green")
     typer.secho(f'Script: "{script_name}" ', fg="green", bold=True)
@@ -67,7 +70,6 @@ def print_script_info(tool_command: str, script_name: str, script: dict) -> None
 
 
 @tool_app.command("import")
-@handle_errors
 def tool_import(
     ctx: typer.Context,
     path: Path = typer.Argument(
@@ -91,7 +93,6 @@ def tool_import(
 
 
 @tool_app.command("list")
-@handle_errors
 def tool_list(
     ctx: typer.Context,
     command: Optional[str] = typer.Option(None, help="Filter by tool command"),
@@ -102,10 +103,18 @@ def tool_list(
     active: Optional[bool] = typer.Option(None, help="Filter by active status"),
 ):
     """
-    Lists all tools in the effective registry with detailed information.
+    Lists all tools in the effective registry with detailed information (read-only).
     """
-    logger.info("Listing tools with filters: command=%s, name=%s, description=%s, location=%s, group=%s, active=%s",
-                command, name, description, location, group, active)
+    logger.info(
+        "Listing tools with filters: command=%s, name=%s, description=%s, "
+        "location=%s, group=%s, active=%s",
+        command,
+        name,
+        description,
+        location,
+        group,
+        active,
+    )
     service = ToolService.from_context(ctx)
     tools = service.registry.package_registry.list_packages(
         command=command,
@@ -134,14 +143,13 @@ def tool_list(
         logger.info("No tools found with provided filters.")
 
 
-@tool_app.command("info")
-@handle_errors
-def tool_info(
+@tool_app.command("show")
+def tool_show(
     ctx: typer.Context,
     command: str = typer.Argument(..., help="Unique tool command identifier"),
 ):
     """
-    Displays detailed information and available scripts for the specified tool.
+    Displays detailed information and available scripts for the specified tool (read-only).
     """
     logger.info("Fetching info for tool: %s", command)
     service = ToolService.from_context(ctx)
@@ -159,7 +167,6 @@ def tool_info(
 
 
 @tool_app.command("remove")
-@handle_errors
 def tool_remove(
     ctx: typer.Context,
     command: str = typer.Argument(..., help="Unique tool command to remove"),
@@ -170,11 +177,10 @@ def tool_remove(
     logger.info("Attempting to remove tool with command: %s", command)
     service = ToolService.from_context(ctx)
     service.remove_tool(command)
-    typer.echo(f"Tool '{command}' removed successfully.")
+    logger.info("Tool '%s' removed successfully.", command)
 
 
 @tool_app.command("remove-group")
-@handle_errors
 def tool_remove_group(
     ctx: typer.Context,
     group: str = typer.Argument(..., help="Group name to remove"),
@@ -185,57 +191,48 @@ def tool_remove_group(
     logger.info("Attempting to remove all tools in group: %s", group)
     service = ToolService.from_context(ctx)
     service.remove_group_tools(group)
-    typer.echo(f"All tools in group '{group}' removed successfully.")
+    logger.info("All tools in group '%s' removed successfully.", group)
 
 
 @tool_app.command("move")
-@handle_errors
 def tool_move(
     ctx: typer.Context,
     command: str = typer.Argument(..., help="Unique tool command to move"),
     to: str = typer.Argument(
         ..., help="Target registry to move the tool to (user or workspace)"
     ),
-    force: bool = typer.Option(
-        False, "--force", help="Force overwrite if the package already exists"
-    ),
+    force: bool = typer.Option(False, "--force", help="Force overwrite if the package already exists"),
 ):
     """
     Moves a tool package from one registry to the other.
     """
     logger.info("Initiating move of tool '%s' to target registry: %s", command, to)
     if to.lower() not in ("user", "workspace"):
-        typer.echo("Invalid target registry specified. Choose 'user' or 'workspace'.")
         logger.error("Invalid target registry specified for move: %s", to)
-        raise typer.Exit(code=1)
+        raise ValueError("Invalid target registry specified. Choose 'user' or 'workspace'.")
     service = ToolService.from_context(ctx)
     service.move_tool(command, to, force)
-    typer.echo(f"Tool '{command}' moved to {to} registry.")
+    logger.info("Tool '%s' moved to '%s' registry.", command, to)
 
 
 @tool_app.command("export")
-@handle_errors
 def tool_export(
     ctx: typer.Context,
     tool_command: str = typer.Argument(..., help="Unique tool command to export"),
     output: Path = typer.Argument(..., help="Output path"),
-    as_zip: bool = typer.Option(
-        False, "--zip", help="Export as a ZIP archive (default: False)"
-    ),
-    force: bool = typer.Option(
-        False, "--force", help="Force overwrite if the package already exists"
-    ),
+    as_zip: bool = typer.Option(False, "--zip", help="Export as a ZIP archive (default: False)"),
+    force: bool = typer.Option(False, "--force", help="Force overwrite if the package already exists"),
 ):
     """
-    Exports a tool package as a ZIP archive.
+    Exports a tool package to the specified output path.
     """
     logger.info("Exporting tool '%s' to output path: %s", tool_command, output)
     service = ToolService.from_context(ctx)
     service.export_tool(tool_command, output, as_zip, force)
-    typer.echo(f"Tool '{tool_command}' exported successfully.")
+    logger.info("Tool '%s' exported successfully to %s.", tool_command, output)
+
 
 @tool_app.command("sync")
-@handle_errors
 def tool_sync(ctx: typer.Context):
     """
     Syncs active tool packages from the registry by re-importing them from disk.
@@ -243,5 +240,6 @@ def tool_sync(ctx: typer.Context):
     logger.info("Starting tool synchronization.")
     service = ToolService.from_context(ctx)
     counts = service.sync_tools()
-    for sc, count in counts.items():
-        typer.echo(f"Synced {count} active tool packages in {sc} registry.")
+    for registry_type, count in counts.items():
+        logger.info("Synced %d active tool packages in %s registry.", count, registry_type)
+    logger.info("Tool synchronization completed successfully.")

@@ -1,6 +1,14 @@
+#!/usr/bin/env python3
+"""
+devt/init.py
+
+Initialization Module
+
+Provides functions to set up the application environment.
+"""
+
 import logging
 import os
-from pathlib import Path
 
 from devt.constants import APP_NAME, USER_APP_DIR, WORKSPACE_APP_DIR
 

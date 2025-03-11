@@ -1,9 +1,19 @@
-# command_utils.py
+#!/usr/bin/env python3
+"""
+devt/package/utils.py
+
+Utility functions for package management.
+
+Provides functions to load and validate manifest files, build command tokens,
+and merge global and script configurations.
+"""
+import logging
 import shlex
 import shutil
 from pathlib import Path
 from devt.utils import load_manifest, validate_manifest, merge_configs
 
+logger = logging.getLogger(__name__)
 
 def needs_shell_fallback(args, posix: bool) -> bool:
     """
@@ -21,6 +31,8 @@ def default_shell_prefix(command: str, is_windows: bool) -> list:
     Return the default shell prefix for the current OS.
     """
     if is_windows:
+        if "\n" in command and not command.strip().startswith("& {"):
+                command = f"{{\n{command}\n}}"
         if shutil.which("pwsh"):
             return ["pwsh", "-Command", f"& {command}"]
         else:

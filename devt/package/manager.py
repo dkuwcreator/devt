@@ -1,4 +1,13 @@
-import os
+#!/usr/bin/env python
+"""
+devt/package/manager.py
+
+Package Manager
+
+Handles file system operations for packages, including importing, moving,
+copying, deleting, and exporting package directories.
+"""
+
 import logging
 import shutil
 import zipfile

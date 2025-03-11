@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+"""
+devt/constants.py
+
+Includes all the constants used in the application.
+"""
+
 import configparser
 import inspect
 import subprocess

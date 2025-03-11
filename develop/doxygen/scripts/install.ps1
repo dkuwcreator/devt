@@ -6,6 +6,29 @@ param(
 $InstallDir = Join-Path $env:APPDATA "Doxygen"
 $binPath = $InstallDir
 
+# A function to update environment variables
+function Update-Path {
+    # Retrieve machine and user PATH variables
+    $machinePath = [System.Environment]::GetEnvironmentVariable("PATH", [System.EnvironmentVariableTarget]::Machine)
+    $userPath    = [System.Environment]::GetEnvironmentVariable("PATH", [System.EnvironmentVariableTarget]::User)
+    
+    # Ensure paths are trimmed and free of extra semicolons
+    $machinePath = $machinePath.Trim().TrimEnd(';')
+    $userPath    = $userPath.Trim().TrimStart(';')
+    
+    # Combine the paths if both exist
+    if (-not [string]::IsNullOrEmpty($machinePath) -and -not [string]::IsNullOrEmpty($userPath)) {
+        $env:PATH = "$machinePath;$userPath"
+    }
+    elseif (-not [string]::IsNullOrEmpty($machinePath)) {
+        $env:PATH = $machinePath
+    }
+    else {
+        $env:PATH = $userPath
+    }
+}
+
+
 if ($Uninstall) {
     try {
         if (Test-Path $InstallDir) {
@@ -19,7 +42,7 @@ if ($Uninstall) {
         $currentPath = [System.Environment]::GetEnvironmentVariable("PATH", [System.EnvironmentVariableTarget]::User)
         $newPath = ($currentPath -split ";") -notmatch [regex]::Escape($binPath)
         [System.Environment]::SetEnvironmentVariable("PATH", ($newPath -join ";"), [System.EnvironmentVariableTarget]::User)
-        $env:PATH = ($env:PATH -split ";") -notmatch [regex]::Escape($binPath) -join ";"
+        Update-Path
         
         Write-Output "Uninstallation complete. Please restart your terminal or log off and log back in for the PATH changes to take effect."
     } catch {
@@ -66,7 +89,7 @@ try {
     if ($currentPath -notlike "*$binPath*") {
         $newPath = "$currentPath;$binPath"
         [System.Environment]::SetEnvironmentVariable("PATH", $newPath, [System.EnvironmentVariableTarget]::User)
-        $env:PATH = "$env:PATH;$binPath"
+        Update-Path
     }
     
     Write-Output "Cleaning up..."

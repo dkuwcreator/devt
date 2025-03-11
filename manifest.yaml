@@ -2,13 +2,16 @@ name: My Workspace
 description: This is my workspace. There are many like it, but this one is mine.
 dependencies: {}
 command: workspace
-config:
-  scope: workspace
+
 scripts:
-  install: py build.py --clean
+  build: py build.py
   windows:
-    build: .venv/Scripts/Activate.ps1; py build.py --clean;
-    replace: Copy-Item -Path .\dist\* -Destination $env:USERPROFILE\devt -Recurse -Force
+    replace: |
+      Remove-Item -Path $env:USERPROFILE\devt -Recurse -Force -ErrorAction SilentlyContinue
+      New-Item -Path $env:USERPROFILE\devt -ItemType Directory -Force
+      Copy-Item -Path .\dist\* -Destination $env:USERPROFILE\devt -Recurse -Force
+      Get-ChildItem -Path $env:USERPROFILE\devt -Recurse -Filter "*-windows*" |
+          ForEach-Object { Rename-Item $_.FullName ($_.Name -replace '-windows','') }
     push: ./scripts/push.ps1
     tag: ./scripts/tag.ps1
     revert: ./scripts/revert.ps1

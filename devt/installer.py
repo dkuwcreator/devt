@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """
+devt/installer.py
+
 DevT Installer
 
 Downloads the main executable from GitHub, replaces any existing copy,

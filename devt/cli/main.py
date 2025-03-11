@@ -17,6 +17,7 @@ from devt.cli.commands.workspace import workspace_app
 from devt.cli.commands.self import self_app
 from devt.cli.commands.execute import execute_app
 from devt.cli.sync_service import SyncManager
+from devt.init import setup_environment
 
 logger = logging.getLogger(__name__)
 app = typer.Typer(help="DevT: A CLI tool for managing development tool packages.")
@@ -48,6 +49,10 @@ def main(
         log_level,
         log_format,
     )
+    
+    # Ensure required directories exist and the environment is set up.
+    setup_environment()
+    
     setup_app_context(ctx, scope, log_level, log_format, auto_sync)
     logger.info("App context successfully set up.")
 
@@ -59,7 +64,7 @@ def main(
         if is_git_installed():
             if ctx.invoked_subcommand != "repo":
                 sync_manager = SyncManager.from_context(ctx)
-                sync_manager.start_background_sync()
+                sync_manager.start_background_sync(ctx.invoked_subcommand)
             else:
                 logger.info("Subcommand is 'repo'; skipping auto-sync.")
         else:
@@ -87,5 +92,9 @@ if is_git_installed():
 app.add_typer(execute_app, name="")
 
 if __name__ == "__main__":
-    logger.info("Starting DevT CLI application.")
-    app()
+    try:
+        logger.info("Starting DevT CLI application.")
+        app()
+    except Exception as e:
+        from devt.error_wrapper import handle_errors
+        handle_errors(lambda: (_ for _ in ()).throw(e))()

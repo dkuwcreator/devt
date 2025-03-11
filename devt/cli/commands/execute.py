@@ -1,8 +1,18 @@
+#!/usr/bin/env python3
+"""
+devt/cli/commands/execute.py
+
+DevT Execute Commands
+
+Provides commands to execute scripts from installed tools and the workspace package.
+"""
 import logging
 from pathlib import Path
 from typing import List, Optional
 from typing_extensions import Annotated
 import typer
+
+# Removed: from devt.error_wrapper import handle_errors
 
 from devt.cli.helpers import get_package_from_registries
 from devt.config_manager import WORKSPACE_APP_DIR
@@ -29,37 +39,30 @@ def run_script(
     Executes a script from an installed tool package.
     """
     extra_args = extra_args or []
-    logger.info(f"Executing script with parameters: {extra_args}")
+    logger.info("Executing script with parameters: %s", extra_args)
 
     scope = scope.lower()
     if scope not in ("workspace", "user", "both"):
-        typer.echo("Invalid scope. Choose from 'workspace', 'user', or 'both'.")
-        raise typer.Exit(code=1)
+        logger.error("Invalid scope. Choose from 'workspace', 'user', or 'both'.")
+        raise ValueError("Invalid scope specified.")
 
-    # Instantiate separate registry instances for scripts and packages
-    pkg, scope = get_package_from_registries(command, scope)
-
+    pkg, resolved_scope = get_package_from_registries(command, scope)
     if not pkg:
-        logger.error(f"Tool '{command}' not found in the specified scope '{scope}'.")
-        raise typer.Exit(code=1)
+        logger.error("Tool '%s' not found in the specified scope '%s'.", command, resolved_scope)
+        raise ValueError(f"Tool '{command}' not found in scope '{resolved_scope}'.")
 
     scripts = pkg.get("scripts", {})
-
     if script_name not in scripts and scripts:
-        typer.echo(
-            f"Script '{script_name}' not found for tool '{command}'. "
-            f"Available scripts: {sorted(scripts.keys())}"
+        logger.error(
+            "Script '%s' not found for tool '%s'. Available scripts: %s",
+            script_name, command, sorted(scripts.keys())
         )
-        raise typer.Exit(code=1)
+        raise ValueError(f"Script '{script_name}' not found for tool '{command}'.")
 
-    try:
-        script = Script.from_dict(scripts.get(script_name))
-        base_dir = Path(pkg["location"])
-        result = script.execute(base_dir, extra_args)
-        logger.info(f"Command executed with return code {result.returncode}")
-    except Exception as err:
-        logger.error(f"Error executing script: {err}")
-        raise typer.Exit(code=1)
+    script = Script.from_dict(scripts.get(script_name))
+    base_dir = Path(pkg["location"])
+    result = script.execute(base_dir, extra_args)
+    logger.info("Command executed with return code %d", result.returncode)
 
 
 @execute_app.command("run")
@@ -73,30 +76,19 @@ def run_workspace(
     extra_args = extra_args or []
     workspace_file = find_file_type("manifest", WORKSPACE_APP_DIR)
     if not workspace_file:
-        typer.echo("No workspace file found in the current directory.")
-        typer.echo("Run 'devt workspace init' to create a new workspace.")
-        raise typer.Exit(code=1)
+        logger.error("No workspace file found. Run 'devt workspace init' to create a new workspace.")
+        raise ValueError("No workspace file found in the current directory.")
 
-    try:
-        pb = PackageBuilder(package_path=workspace_file.parent)
-        if script_name not in pb.scripts:
-            logger.error(f"Script '{script_name}' not found in the workspace package.")
-            raise typer.Exit(code=1)
-        script = pb.scripts[script_name]
-    except Exception as e:
-        logger.error(f"Error building workspace package: {e}")
-        raise typer.Exit(code=1)
+    pb = PackageBuilder(package_path=workspace_file.parent)
+    if script_name not in pb.scripts:
+        logger.error("Script '%s' not found in the workspace package.", script_name)
+        raise ValueError(f"Script '{script_name}' not found in the workspace package.")
 
     base_dir = workspace_file.parent.resolve()
-    try:
-        result = script.execute(base_dir, extra_args=extra_args)
-        logger.info(f"Command executed with return code {result.returncode}")
-    except Exception as e:
-        logger.error(f"Error executing script: {e}")
-        raise typer.Exit(code=1)
+    result = pb.scripts[script_name].execute(base_dir, extra_args=extra_args)
+    logger.info("Command executed with return code %d", result.returncode)
 
 
-# Standardized tool script commands
 @execute_app.command("install")
 def install(
     tool_commands: List[str] = typer.Argument(..., help="Tool commands to install"),
@@ -147,9 +139,7 @@ def upgrade(
 
 @execute_app.command("version")
 def version(
-    tool_commands: List[str] = typer.Argument(
-        ..., help="Tool commands to display version"
-    ),
+    tool_commands: List[str] = typer.Argument(..., help="Tool commands to display version"),
     scope: str = typer.Option(
         "both",
         "--scope",

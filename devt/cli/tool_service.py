@@ -1,3 +1,12 @@
+#!/usr/bin/env python3
+"""
+devt/cli/tool_service.py
+
+Tool Service Commands
+
+Provides commands to import, export, update, and remove tool packages.
+"""
+
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -172,16 +181,12 @@ class ToolService:
             active_packages = reg.package_registry.list_packages(active=True)
             for pkg in active_packages:
                 pkg_location = Path(pkg["location"])
-                try:
-                    new_pkg = pkg_manager.update_package(pkg_location, pkg["group"])
-                    reg.register_package(new_pkg.to_dict(), force=True)
-                    count += 1
-                    logger.info(
-                        "Synced tool '%s' in %s registry.", pkg.get("command"), scope
-                    )
-                except Exception as e:
-                    logger.exception("Error syncing tool at %s: %s", pkg_location, e)
-                    continue
+                # Let errors bubble up for centralized handling (no manual try/except).
+                new_pkg = pkg_manager.update_package(pkg_location, pkg["group"])
+                reg.register_package(new_pkg.to_dict(), force=True)
+                count += 1
+                logger.info("Synced tool '%s' in %s registry.", pkg.get("command"), scope)
+
             sync_counts[scope] = count
             logger.info("Completed syncing %d tools in %s registry.", count, scope)
         return sync_counts

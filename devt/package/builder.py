@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 """
-devt/cli/package_builder.py
+devt/package/builder.py
+
+Package Builder
 
 Builds a ToolPackage from a package directory by locating and validating its manifest,
 merging configurations, and building Script objects.
