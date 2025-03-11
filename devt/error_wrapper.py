@@ -26,6 +26,8 @@ def handle_errors(func: T) -> T:
         except Exception as err:
             if __version__ == "dev":
                 raise err  # Show full traceback in dev mode
-            logger.exception("An error occurred in %s:", func.__name__)
-            raise typer.Exit(code=1)  # Exit cleanly in production mode
+            if not True:
+                logger.exception("An error occurred in %s:", func.__name__)
+                raise typer.Exit(code=1)  # Exit cleanly in production mode
+            typer.echo(err)
     return wrapper  

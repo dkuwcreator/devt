@@ -5,6 +5,7 @@ devt/cli/helpers.py
 Helper functions for CLI initialization and common tasks.
 """
 
+import json
 import logging
 from pathlib import Path
 import shutil
@@ -13,10 +14,15 @@ from typing import Any, Dict, Optional, Tuple
 import typer
 
 from devt.config_manager import ConfigManager
-from devt.constants import SCOPE_TO_REGISTRY_DIR, WORKSPACE_REGISTRY_DIR
+from devt.constants import (
+    SCOPE_TO_REGISTRY_DIR,
+    WORKSPACE_APP_DIR,
+    WORKSPACE_REGISTRY_DIR,
+)
 from devt.logger_manager import LoggerManager
 from devt.registry.manager import RegistryManager
 from devt.utils import find_file_type
+import pprint
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +64,10 @@ def setup_app_context(
 
     # Validate log level.
     if log_level and log_level not in ["DEBUG", "INFO", "WARNING", "ERROR"]:
-        logger.error("Invalid log level: %s. Must be one of DEBUG, INFO, WARNING, ERROR.", log_level)
+        logger.error(
+            "Invalid log level: %s. Must be one of DEBUG, INFO, WARNING, ERROR.",
+            log_level,
+        )
         raise ValueError("Log level must be one of DEBUG, INFO, WARNING, or ERROR.")
 
     # Build runtime configuration from arguments.
@@ -82,19 +91,25 @@ def setup_app_context(
 
     # Determine registry directory based on effective scope.
     effective_scope: str = effective_config["scope"]
-
-    if effective_scope.lower() == "workspace":
+    if effective_scope.lower() == "workspace" and ctx.invoked_subcommand != "workspace":
         # Verify the current directory is a Git repository (optional check).
         git_repo = Path.cwd() / ".git"
         if not git_repo.exists():
-            logger.warning("Workspace scope selected, but no Git repository found.")
+            logger.debug("Workspace scope selected, but no Git repository found.")
             # Check if there's at least a workspace registry with a manifest.
-            has_registry = WORKSPACE_REGISTRY_DIR.exists() and find_file_type("manifest", WORKSPACE_REGISTRY_DIR)
+            has_registry = WORKSPACE_REGISTRY_DIR.exists() and find_file_type(
+                "manifest", WORKSPACE_APP_DIR
+            )
             if not has_registry:
-                logger.error("No workspace registry found. Run 'devt workspace init' to create one.")
-                raise FileNotFoundError("No workspace registry found. Run 'devt workspace init' first.")
+                logger.error(
+                    "No workspace registry found. Run 'devt workspace init' to create one."
+                )
+                raise FileNotFoundError(
+                    "No workspace registry found. Run 'devt workspace init' first."
+                )
 
     registry_dir = SCOPE_TO_REGISTRY_DIR[effective_scope]
+    logger.info("Using registry directory: %s", registry_dir)
 
     # Store configuration and other objects in the Typer context.
     ctx.obj = {
@@ -103,7 +118,11 @@ def setup_app_context(
         "registry_dir": registry_dir,
     }
 
-    logger.info("App context set up with scope: %s, registry_dir: %s", effective_scope, registry_dir)
+    logger.info(
+        "App context set up with scope: %s, registry_dir: %s",
+        effective_scope,
+        registry_dir,
+    )
 
 
 def get_scopes_to_query(scope: Optional[str] = None) -> Dict[str, RegistryManager]:
@@ -119,14 +138,21 @@ def get_scopes_to_query(scope: Optional[str] = None) -> Dict[str, RegistryManage
     scope_lower = scope.lower() if scope else None
 
     if scope_lower is None or scope_lower in both_scopes:
-        logger.info("Querying both 'user' and 'workspace' scopes.")
-        return {s: RegistryManager(SCOPE_TO_REGISTRY_DIR[s]) for s in valid_scopes}
+        logger.info("Querying both 'workspace' and 'user' scopes.")
+        return {
+            "workspace": RegistryManager(SCOPE_TO_REGISTRY_DIR["workspace"]),
+            "user": RegistryManager(SCOPE_TO_REGISTRY_DIR["user"]),
+        }
     elif scope_lower in valid_scopes:
         logger.info("Querying single scope: %s", scope_lower)
         return {scope_lower: RegistryManager(SCOPE_TO_REGISTRY_DIR[scope_lower])}
     else:
-        logger.error("Invalid scope provided: %s. Choose 'workspace', 'user', or 'both'.", scope)
-        raise ValueError("Invalid scope provided. Choose 'workspace', 'user', or 'both'.")
+        logger.error(
+            "Invalid scope provided: %s. Choose 'workspace', 'user', or 'both'.", scope
+        )
+        raise ValueError(
+            "Invalid scope provided. Choose 'workspace', 'user', or 'both'."
+        )
 
 
 def get_package_from_registries(

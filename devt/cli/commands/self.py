@@ -8,6 +8,7 @@ Provides version display, installation directory information, and upgrade functi
 It checks for updates on GitHub and triggers an external installer for upgrades.
 """
 
+import shutil
 import sys
 import subprocess
 import logging
@@ -19,7 +20,9 @@ from packaging import version  # used for comparing versions
 
 from devt import __version__
 from devt.common import get_os_suffix, resolve_version, download_file
-from devt.constants import APP_NAME
+from devt.config_manager import ConfigManager
+from devt.constants import APP_NAME, USER_REGISTRY_DIR
+from devt.utils import force_remove, on_exc
 # Removed: from devt.error_wrapper import handle_errors
 
 logger = logging.getLogger(__name__)
@@ -152,3 +155,24 @@ def self_upgrade() -> None:
     subprocess.Popen([str(installer_path), str(install_dir)], close_fds=True)
     logger.info("Updater started. Closing DevT...")
     sys.exit(0)
+
+@self_app.command("reset")
+def self_reset() -> None:
+    """
+    Reset the application to its initial state by removing the Registry directory.
+    """
+    logger.info("Resetting the application to its initial state.")
+    # Delete the User Registry folder
+    try:
+        shutil.rmtree(USER_REGISTRY_DIR / "repos", onexc=on_exc)
+    except Exception as e:
+        logger.error("Failed to remove repository %s: %s", USER_REGISTRY_DIR / "repos", e)
+    force_remove(USER_REGISTRY_DIR)
+    
+    logger.info("User Registry folder removed.")
+    # Reset the configuration
+    logger.info("Resetting the configuration.")
+    ConfigManager().reset()
+    
+    
+

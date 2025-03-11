@@ -11,6 +11,7 @@ it using subprocess.run() with the prepared arguments.
 import json
 import os
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 import tempfile
@@ -18,6 +19,7 @@ from typing import Any, Dict, List, Optional, Union
 import logging
 
 from dotenv import load_dotenv
+import typer
 
 from devt.cli.commands.env import resolve_env_file
 from devt.constants import SUBPROCESS_ALLOWED_KEYS
@@ -248,28 +250,40 @@ class Script:
         logger.info("Working directory: %s", self.cwd)
         logger.info("Environment variables: %s", self.env)
         logger.debug("Full subprocess configuration: %s", json.dumps(config, indent=3))
+
+        terminal_width = min(shutil.get_terminal_size(fallback=(60, 20)).columns, 60)
+        script_border = "═" * terminal_width
+
+        # typer.secho(f"\n{script_border}", fg=typer.colors.BRIGHT_CYAN)
+        typer.secho(f"\nExecuting command:\n{config['args']}", fg=typer.colors.BRIGHT_CYAN, bold=True)
+        typer.secho(f"{script_border}\n", fg=typer.colors.BRIGHT_CYAN)
         result = subprocess.run(**config)
 
-        if result.returncode != 0:
-            # Try a fallback execution without shell wrapper
-            fallback_config = self.prepare_subprocess_args(
-                base_dir,
-                shell="",
-                extra_args=extra_args,
-                auto_create_cwd=auto_create_cwd,
-            )
-            fallback_config["shell"] = True
-            logger.info("Executing fallback command: %s", fallback_config["args"])
-            logger.debug("Fallback subprocess configuration: %s", json.dumps(fallback_config, indent=
-3))
-            result = subprocess.run(**fallback_config)
+        # if result.returncode != 0:
+        #     typer.secho(f"\n{script_border}", fg=typer.colors.YELLOW)
+        #     typer.secho("Initial command failed! Attempting fallback execution...", fg=typer.colors.YELLOW, bold=True)
+        #     fallback_config = self.prepare_subprocess_args(
+        #     base_dir,
+        #     shell="",
+        #     extra_args=extra_args,
+        #     auto_create_cwd=auto_create_cwd,
+        #     )
+        #     fallback_config["shell"] = True
+        #     typer.secho(f"\n{script_border}", fg=typer.colors.CYAN)
+        #     typer.secho(f"Fallback command:\n{fallback_config['args']}", fg=typer.colors.CYAN, bold=True)
+        #     typer.secho(f"{script_border}\n", fg=typer.colors.CYAN)
+        #     result = subprocess.run(**fallback_config)
 
         if result.returncode != 0:
+            typer.secho(f"\n{script_border}", fg=typer.colors.BRIGHT_RED)
+            typer.secho("The command execution failed.\n", fg=typer.colors.BRIGHT_RED, bold=True)
             logger.error("Command failed with return code %d", result.returncode)
             raise CommandExecutionError(
-                "Command failed",
-                result.returncode,
-                stdout=getattr(result, "stdout", None),
-                stderr=getattr(result, "stderr", None),
+            "Command failed",
+            result.returncode,
+            stdout=getattr(result, "stdout", None),
+            stderr=getattr(result, "stderr", None),
             )
+        typer.secho(f"\n{script_border}", fg=typer.colors.GREEN)
+        typer.secho("Command executed successfully.\n", fg=typer.colors.GREEN, bold=True)
         return result

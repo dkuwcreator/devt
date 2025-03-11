@@ -13,6 +13,7 @@ import logging
 import os
 from pathlib import Path
 import platform
+import shutil
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
@@ -20,7 +21,7 @@ from jsonschema import ValidationError, validate
 import typer
 import yaml
 
-from devt.constants import USER_APP_DIR, WORKSPACE_APP_DIR
+from devt.constants import USER_REGISTRY_DIR, WORKSPACE_REGISTRY_DIR
 
 # from InquirerPy import inquirer
 
@@ -32,9 +33,9 @@ def scopes_to_registry_dirs() -> dict:
     Returns the appropriate registry directory based on the specified scope.
     If WORKSPACE_APP_DIR does not exist, the workspace entry is omitted.
     """
-    registry_dirs = {"user": USER_APP_DIR}
-    if WORKSPACE_APP_DIR.exists():
-        registry_dirs["workspace"] = WORKSPACE_APP_DIR
+    registry_dirs = {"user": USER_REGISTRY_DIR}
+    if WORKSPACE_REGISTRY_DIR.exists():
+        registry_dirs["workspace"] = WORKSPACE_REGISTRY_DIR
     return registry_dirs
 
 
@@ -279,9 +280,18 @@ def on_exc(func, path, exc):
         os.chmod(path, 0o777)
         logger.debug("Permission error handled; changed permissions for: %s", path)
         func(path)
+    elif isinstance(exc, FileNotFoundError):
+        logger.debug("File not found error handled for path: %s", path)
     else:
         logger.exception("Unhandled exception for path: %s", path)
         raise exc
+
+def force_remove(path: Path) -> None:
+    """
+    Remove a directory or file forcefully, changing permissions if needed.
+    """
+    logger.debug("Force removing path: %s", path)
+    shutil.rmtree(path, onexc=on_exc, ignore_errors=True)
 
 
 MANIFEST_SCHEMA = {
@@ -309,7 +319,7 @@ def validate_manifest(manifest: dict) -> bool:
 def print_table(
     headers: List[str], rows: List[List[str]], max_field_length: int = 30
 ) -> List[str]:
-    logger.info("Printing table with headers: %s", headers)
+    logger.debug("Printing table with headers: %s", headers)
 
     def truncate_field(text: str, width: int) -> str:
         if len(text) > width:
@@ -352,7 +362,7 @@ def print_table(
         typer.echo(row_line)
 
     typer.echo(separator)
-    logger.info("Table printed successfully.")
+    logger.debug("Table printed successfully.")
 
     # Use select_row to let the user choose a row after printing the table
     # selected = select_row(headers, rows)

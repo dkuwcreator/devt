@@ -32,7 +32,7 @@ class PackageManager:
         self.tools_dir.mkdir(parents=True, exist_ok=True)
         logger.debug("Initialized PackageManager. Tools directory set to: %s", self.tools_dir)
 
-    def _copy_dir(self, source: Path, destination: Path) -> Path:
+    def _copy_dir(self, source: Path, destination: Path, force: bool = False) -> Path:
         """
         Copy the entire package directory from source to destination.
         """
@@ -40,12 +40,8 @@ class PackageManager:
             logger.warning("Attempted to copy directory to itself: %s", source)
             return destination
         logger.debug("Copying directory from '%s' to '%s'.", source, destination)
-        try:
-            shutil.copytree(source, destination)
-            logger.debug("Successfully copied directory from '%s' to '%s'.", source, destination)
-        except Exception:
-            logger.exception("Failed to copy directory from '%s' to '%s'.", source, destination)
-            raise
+        shutil.copytree(source, destination, dirs_exist_ok=force)
+        logger.debug("Successfully copied directory from '%s' to '%s'.", source, destination)
         return destination
 
     def _delete_dir(self, dir_path: Path) -> None:
@@ -53,33 +49,21 @@ class PackageManager:
         Delete the specified directory and its contents.
         """
         logger.debug("Deleting directory: %s", dir_path)
-        try:
-            shutil.rmtree(dir_path)
-            logger.debug("Successfully deleted directory: %s", dir_path)
-        except Exception:
-            logger.exception("Failed to delete directory: %s", dir_path)
-            raise
+        shutil.rmtree(dir_path)
+        logger.debug("Successfully deleted directory: %s", dir_path)
 
     def move_package_to_tools_dir(self, package_dir: Path, group: str = "default", force: bool = False) -> Path:
         """
         Move a package directory into the tools directory under a specified group.
         """
         target_dir = self.tools_dir / group / package_dir.name
-        logger.debug("Preparing to move package from '%s' to target '%s'.", package_dir, target_dir)
-        if target_dir.exists():
-            if target_dir == package_dir:
-                logger.warning("Package directory is already in tools directory: %s", target_dir)
-                return target_dir
-            if force:
-                logger.info("Force enabled: Overwriting existing package at '%s'.", target_dir)
-                self._delete_dir(target_dir)
-            else:
-                error_msg = f"Target package directory already exists: {target_dir}"
-                logger.error(error_msg)
-                raise FileExistsError(error_msg)
-        destination = self._copy_dir(package_dir, target_dir)
-        logger.info("Package moved to tools directory at '%s'.", destination)
-        return destination
+        try:
+            destination = self._copy_dir(package_dir, target_dir, force)
+            logger.info("Package moved to tools directory at '%s'.", destination)
+            return destination
+        except FileExistsError:
+            logger.error("Package directory already exists in tools directory: %s", target_dir)
+            raise FileExistsError(f"Package already exists use --force to overwrite: {package_dir.name}")
 
     def import_packages(self, source: Path, group: str = None, force: bool = False) -> List[ToolPackage]:
         """
@@ -96,45 +80,28 @@ class PackageManager:
 
         if source.is_file() and source.suffix in [".json", ".yaml", ".yml"]:
             effective_group = group or "default"
-            try:
-                dest = self.move_package_to_tools_dir(source.parent, effective_group, force)
-                pkg = PackageBuilder(dest, effective_group).build_package()
-                packages.append(pkg)
-                logger.info("Imported package from file '%s' into group '%s'.", source, effective_group)
-            except Exception as e:
-                error_msg = f"Error building package from '{source}': {e}"
-                logger.exception(error_msg)
-                errors.append(error_msg)
+            dest = self.move_package_to_tools_dir(source.parent, effective_group, force)
+            pkg = PackageBuilder(dest, effective_group).build_package()
+            packages.append(pkg)
+            logger.info("Imported package from file '%s' into group '%s'.", source, effective_group)
         elif source.is_dir():
             manifest = find_file_type("manifest", source)
             if manifest:
                 effective_group = group or "default"
-                try:
-                    dest = self.move_package_to_tools_dir(source, effective_group, force)
-                    pkg = PackageBuilder(dest, effective_group).build_package()
-                    packages.append(pkg)
-                    logger.info("Imported package from directory '%s' with manifest '%s'.", source, manifest.name)
-                except Exception as e:
-                    error_msg = f"Error building package from '{source}': {e}"
-                    logger.exception(error_msg)
-                    errors.append(error_msg)
+                dest = self.move_package_to_tools_dir(source, effective_group, force)
+                pkg = PackageBuilder(dest, effective_group).build_package()
+                packages.append(pkg)
+                logger.info("Imported package from directory '%s' with manifest '%s'.", source, manifest.name)
             else:
                 effective_group = group or source.name
-                found_any = False
-                for mf in source.rglob("manifest.*"):
-                    found_any = True
-                    try:
-                        dest = self.move_package_to_tools_dir(mf.parent, effective_group, force)
-                        pkg = PackageBuilder(dest, effective_group).build_package()
-                        packages.append(pkg)
-                        logger.info("Imported package from manifest '%s' in group '%s'.", mf.name, effective_group)
-                    except Exception as e:
-                        error_msg = f"Error building package from manifest '{mf}': {e}"
-                        logger.exception(error_msg)
-                        errors.append(error_msg)
-                if not found_any:
-                    warning_msg = f"No manifest found in directory '{source}'. Skipping package import."
-                    logger.warning(warning_msg)
+                mfs = source.rglob("manifest.*")
+                if not mfs:
+                    logger.warning("No manifest found in directory '%s'. Skipping package import.", source)
+                for mf in mfs:
+                    dest = self.move_package_to_tools_dir(mf.parent, effective_group, force)
+                    pkg = PackageBuilder(dest, effective_group).build_package()
+                    packages.append(pkg)
+                    logger.info("Imported package from manifest '%s' in group '%s'.", mf.name, effective_group)
         else:
             error_msg = f"Unsupported source type: {source}"
             logger.error(error_msg)

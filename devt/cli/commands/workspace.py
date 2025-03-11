@@ -16,23 +16,46 @@ import yaml
 from pathlib import Path
 import typer
 
-from devt.cli.tool_service import ToolService
+from devt.cli.tool_service import ToolServiceWrapper
+from devt.constants import WORKSPACE_REGISTRY_DIR
 from devt.package.builder import PackageBuilder
-from devt.utils import find_file_type
+from devt.utils import find_file_type, force_remove
 from devt.config_manager import WORKSPACE_APP_DIR
 
 workspace_app = typer.Typer(help="Project-level commands")
 logger = logging.getLogger(__name__)
 
-WORKSPACE_TEMPLATE = {
-    "name": "Workspace Wizard",
-    "description": "Welcome to Workspace Wizard, your hub for organized creativity! Transform your workspace into a realm of efficiency and innovation, where every project finds its place.",
-    "command": "workspace",
-    "dependencies": {},
-    "scripts": {
-        "test": "echo 'Verifying workspace integrity... All systems operational!'"
-    },
-}
+def generate_workspace_template(command: str = "workspace") -> dict:
+    cmd_display = command.capitalize()
+    return {
+        "name": f"{cmd_display} Wizard",
+        "description":f"Welcome to {cmd_display} Wizard, your hub for organized creativity!",
+        "command": command,
+        "dependencies": {},
+        "scripts": {
+            "test": f"echo 'Verifying {command} integrity... All systems operational!'"
+        },
+    }
+
+@workspace_app.callback()
+def main(ctx: typer.Context) -> None:
+    """
+    Manage repositories containing tool packages.
+    """
+    # Determine registry directory based on effective scope.
+    effective_scope: str = ctx.obj.get("scope")
+    if effective_scope.lower() == "workspace" and ctx.invoked_subcommand != "init":
+        # Verify the current directory is a Git repository (optional check).
+        git_repo = Path.cwd() / ".git"
+        if not git_repo.exists():
+            logger.debug("Workspace scope selected, but no Git repository found.")
+            # Check if there's at least a workspace registry with a manifest.
+            has_registry = WORKSPACE_REGISTRY_DIR.exists() and find_file_type("manifest", WORKSPACE_APP_DIR)
+            if not has_registry:
+                logger.error("No workspace registry found. Run 'devt workspace init' to create one.")
+                raise FileNotFoundError("No workspace registry found. Run 'devt workspace init' first.")
+
+
 
 
 @workspace_app.command("init")
@@ -50,10 +73,10 @@ def workspace_init(
     file_format_lower = file_format.lower()
     if file_format_lower == "json":
         target_file = WORKSPACE_APP_DIR / "manifest.json"
-        workspace_content = json.dumps(WORKSPACE_TEMPLATE, indent=4)
+        workspace_content = json.dumps(generate_workspace_template(), indent=4)
     else:
         target_file = WORKSPACE_APP_DIR / "manifest.yaml"
-        workspace_content = yaml.dump(WORKSPACE_TEMPLATE, sort_keys=False)
+        workspace_content = yaml.dump(generate_workspace_template(), sort_keys=False)
 
     if target_file.exists() and not force:
         logger.warning("Project already initialized. Use --force to overwrite.")
@@ -76,13 +99,16 @@ def workspace_init(
                 f.write(append_lines)
             logger.info("Added DevTools entries to .gitignore")
 
+    WORKSPACE_REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
+
     logger.info(
         "Project initialized successfully with %s format.", file_format_lower.upper()
     )
+    typer.echo("Project initialized successfully.")
 
 
-@workspace_app.command("info")
-def workspace_info():
+@workspace_app.command("show")
+def workspace_show():
     """
     Displays workspace configuration settings (read-only).
     """
@@ -92,126 +118,13 @@ def workspace_info():
     else:
         typer.echo("No workspace file found. Run 'devt workspace init' first.")
 
-
-@workspace_app.command("create")
-def workspace_create(
-    command: str = typer.Argument(..., help="Name of the new local tool command"),
-    file_format: str = typer.Option(
-        "yaml", "--format", help="File format: 'yaml' (default) or 'json'."
-    ),
-    force: bool = typer.Option(
-        False, "--force", help="Force creation even if the tool exists"
-    ),
-):
+@workspace_app.command("reset")
+def workspace_reset():
     """
-    Creates a new local tool in the develop folder.
+    Reset the workspace by removing the Registry directory.
     """
-    file_format_lower = file_format.lower()
-    if file_format_lower == "json":
-        target_file = WORKSPACE_APP_DIR / "develop" / command / "manifest.json"
-        tool_template = json.dumps(
-            {
-                "name": command,
-                "description": f"A new tool for command '{command}'.",
-                "command": command,
-                "dependencies": {},
-                "scripts": {},
-            },
-            indent=4,
-        )
-    else:
-        target_file = WORKSPACE_APP_DIR / "develop" / command / "manifest.yaml"
-        tool_template = yaml.dump(
-            {
-                "name": command,
-                "description": f"A new tool for command '{command}'.",
-                "command": command,
-                "dependencies": {},
-                "scripts": {},
-            },
-            sort_keys=False,
-        )
-
-    target_dir = target_file.parent
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    if target_file.exists() and not force:
-        logger.warning("Tool '%s' already exists. Use --force to overwrite.", command)
-        raise ValueError(f"Tool '{command}' already exists. Use --force to overwrite.")
-
-    target_file.write_text(tool_template)
-    logger.info(
-        "Tool '%s' created successfully with %s format.",
-        command,
-        file_format_lower.upper(),
-    )
-
-
-@workspace_app.command("customize")
-def workspace_customize(
-    ctx: typer.Context,
-    command: str = typer.Argument(..., help="Name of the tool in the develop folder"),
-    force: bool = typer.Option(
-        False, "--force", help="Force overwrite if the tool already exists"
-    ),
-):
-    """
-    Copies a tool package to the develop folder for customization.
-    """
-    logger.info("Starting tool customization: command=%s, force=%s", command, force)
-    service = ToolService.from_context(ctx)
-    service.export_tool(
-        command, WORKSPACE_APP_DIR / "develop", as_zip=False, force=force
-    )
-    logger.info("Tool customization completed successfully for command: %s", command)
-
-
-@workspace_app.command("do")
-def workspace_do(
-    command: str = typer.Argument(..., help="Unique tool command"),
-    script_name: str = typer.Argument(..., help="Name of the script to execute"),
-    extra_args: Annotated[
-        Optional[List[str]], typer.Argument(help="Extra arguments")
-    ] = None,
-):
-    """
-    Executes a script from an installed tool package.
-    """
-    workspace_file = find_file_type("manifest", WORKSPACE_APP_DIR / "develop" / command)
-    pb = PackageBuilder(package_path=workspace_file.parent)
-    if script_name not in pb.scripts:
-        logger.error("Script '%s' not found in the workspace package.", script_name)
-        raise ValueError(f"Script '{script_name}' not found in the workspace package.")
-
-    script = pb.scripts[script_name]
-    extra_args = extra_args or []
-    logger.info("Executing script '%s' with parameters: %s", script_name, extra_args)
-
-    base_dir = workspace_file.parent.resolve()
-    result = script.execute(base_dir, extra_args=extra_args)
-    logger.info(
-        "Script '%s' executed with return code %s", script_name, result.returncode
-    )
-
-
-@workspace_app.command("import")
-def workspace_import(
-    ctx: typer.Context,
-    command: str = typer.Argument(..., help="Name of the tool in the develop folder"),
-    force: bool = typer.Option(
-        False, "--force", help="Force overwrite if the tool already exists"
-    ),
-    group: str = typer.Option(
-        None, "--group", help="Custom group name for the tool package (optional)"
-    ),
-):
-    """
-    Imports a local tool package from the develop folder.
-    """
-    logger.info(
-        "Starting tool import: command=%s, force=%s, group=%s", command, force, group
-    )
-    service = ToolService.from_context(ctx)
-    tool_path = WORKSPACE_APP_DIR / "develop" / command
-    service.import_tool(tool_path, group or "default", force)
-    logger.info("Tool import completed successfully for command: %s", command)
+    logger.info("Resetting the application to its initial state.")
+    # Delete the User Registry folder
+    force_remove(WORKSPACE_REGISTRY_DIR)
+    logger.info("Workspace Registry folder removed.")
+    WORKSPACE_REGISTRY_DIR.mkdir(parents=True, exist_ok=True)

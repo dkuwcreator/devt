@@ -14,6 +14,7 @@ from devt.cli.commands.env import env_app
 from devt.cli.commands.config import config_app
 from devt.cli.commands.tool import tool_app
 from devt.cli.commands.workspace import workspace_app
+from devt.cli.commands.dev import dev_app
 from devt.cli.commands.self import self_app
 from devt.cli.commands.execute import execute_app
 from devt.cli.sync_service import SyncManager
@@ -77,19 +78,23 @@ def main(
 
 
 # Add grouped commands
-app.add_typer(env_app, name="env")
-app.add_typer(config_app, name="config")
-app.add_typer(tool_app, name="tool")
+
+# Flatten the execute commands into the main app
+app.add_typer(execute_app, name="")
+
+app.add_typer(tool_app, name="")
 app.add_typer(workspace_app, name="workspace")
-app.add_typer(self_app, name="self")
+app.add_typer(dev_app, name="dev")
 
 if is_git_installed():
     from devt.cli.commands.repo import repo_app
     app.add_typer(repo_app, name="repo")
 
+app.add_typer(env_app, name="env")
+app.add_typer(config_app, name="config")
+app.add_typer(self_app, name="self")
 
-# Flatten the execute commands into the main app
-app.add_typer(execute_app, name="")
+
 
 if __name__ == "__main__":
     try:

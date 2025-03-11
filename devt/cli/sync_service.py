@@ -17,6 +17,7 @@ from devt.constants import SCOPE_TO_REGISTRY_DIR
 from devt.package.manager import PackageManager
 from devt.registry.manager import RegistryManager
 from devt.repo_manager import RepoManager
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +27,10 @@ class SyncManager:
 
     @classmethod
     def from_context(cls, ctx: typer.Context) -> "SyncManager":
-        scope = ctx.obj.get("scope")
-        return cls(SCOPE_TO_REGISTRY_DIR[scope])
+        return cls(ctx.obj.get("registry_dir"))
 
     def __init__(self, registry_dir: Path) -> None:
         self.registry = RegistryManager(registry_dir)
-        self.pkg_manager = PackageManager(registry_dir)
         self.tool_service = ToolService(registry_dir)
         self.repo_manager = RepoManager()
         self.last_sync_time = 0
@@ -41,8 +40,29 @@ class SyncManager:
         Sync a single repository, update tools, and handle any errors.
         """
         repo_name = repo["name"]
-        logger.info("Starting sync for repository '%s' located at %s", repo_name, repo["location"])
-        updated_dir, current_branch, changes_made = self.repo_manager.sync_repo(repo["location"])
+
+        # Check if last_update is recent and skip sync if within SYNC_INTERVAL
+        last_update_str = repo.get("last_update")
+        if last_update_str:
+            last_update_dt = datetime.fromisoformat(last_update_str)
+            now = datetime.now(last_update_dt.tzinfo)
+            elapsed = (now - last_update_dt).total_seconds()
+            if elapsed < self.SYNC_INTERVAL and not force:
+                logger.info(
+                    "Skipping sync for '%s' as last update was %.2f seconds ago (< SYNC_INTERVAL).",
+                    repo_name,
+                    elapsed,
+                )
+                return
+
+        logger.info(
+            "Starting sync for repository '%s' located at %s",
+            repo_name,
+            repo["location"],
+        )
+        updated_dir, current_branch, changes_made = self.repo_manager.sync_repo(
+            repo["location"]
+        )
         logger.debug(
             "Sync result for '%s': updated_dir=%s, branch=%s, changes_made=%s",
             repo_name,
@@ -50,6 +70,9 @@ class SyncManager:
             current_branch,
             changes_made,
         )
+
+        # Update last_update timestamp in registry
+        self.registry.repository_registry.update_repository(repo.get("url"))
 
         if not changes_made and not force:
             logger.info("No changes detected for '%s'; skipping update.", repo_name)
@@ -62,7 +85,9 @@ class SyncManager:
         """
         Synchronize all repositories with auto-sync enabled in parallel and wait for completion.
         """
-        repositories = self.registry.repository_registry.list_repositories(auto_sync=True)
+        repositories = self.registry.repository_registry.list_repositories(
+            auto_sync=True
+        )
         logger.info("Found %d repositories with auto-sync enabled.", len(repositories))
         if not repositories:
             logger.info("No repositories found with auto-sync enabled.")
@@ -79,8 +104,8 @@ class SyncManager:
             for future in future_to_repo.keys():
                 repo_name = future_to_repo[future]
                 # Exceptions will bubble up if any occur inside sync_single_repository
-                future.result()
                 logger.info("Auto-synced repository: %s", repo_name)
+                future.result()
 
     def start_background_sync(self, subcommand: str) -> None:
         """

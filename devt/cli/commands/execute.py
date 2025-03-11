@@ -20,7 +20,7 @@ from devt.package.manager import PackageBuilder
 from devt.package.script import Script
 from devt.utils import find_file_type
 
-execute_app = typer.Typer(help="Script execution and utility commands")
+execute_app = typer.Typer(help="[Execute] Execution and utility commands")
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +28,9 @@ logger = logging.getLogger(__name__)
 def run_script(
     command: str = typer.Argument(..., help="Unique tool command"),
     script_name: str = typer.Argument(..., help="Name of the script to execute"),
-    extra_args: Annotated[Optional[List[str]], typer.Argument(help="Extra arguments")] = None,
+    extra_args: Annotated[
+        Optional[List[str]], typer.Argument(help="Extra arguments")
+    ] = None,
     scope: str = typer.Option(
         "both",
         "--scope",
@@ -36,7 +38,7 @@ def run_script(
     ),
 ):
     """
-    Executes a script from an installed tool package.
+    [Execute] Executes a script from an installed tool package.
     """
     extra_args = extra_args or []
     logger.info("Executing script with parameters: %s", extra_args)
@@ -48,21 +50,24 @@ def run_script(
 
     pkg, resolved_scope = get_package_from_registries(command, scope)
     if not pkg:
-        logger.error("Tool '%s' not found in the specified scope '%s'.", command, resolved_scope)
+        logger.debug(
+            "Tool '%s' not found in the specified scope '%s'.", command, resolved_scope
+        )
         raise ValueError(f"Tool '{command}' not found in scope '{resolved_scope}'.")
 
     scripts = pkg.get("scripts", {})
     if script_name not in scripts and scripts:
         logger.error(
             "Script '%s' not found for tool '%s'. Available scripts: %s",
-            script_name, command, sorted(scripts.keys())
+            script_name,
+            command,
+            sorted(scripts.keys()),
         )
         raise ValueError(f"Script '{script_name}' not found for tool '{command}'.")
 
     script = Script.from_dict(scripts.get(script_name))
     base_dir = Path(pkg["location"])
-    result = script.execute(base_dir, extra_args)
-    logger.info("Command executed with return code %d", result.returncode)
+    script.execute(base_dir, extra_args)
 
 
 @execute_app.command("run")
@@ -71,12 +76,14 @@ def run_workspace(
     extra_args: Annotated[Optional[List[str]], typer.Argument()] = None,
 ):
     """
-    Executes a script from the workspace package using the PackageBuilder.
+    [Execute] Executes a script from the workspace package using the PackageBuilder.
     """
     extra_args = extra_args or []
     workspace_file = find_file_type("manifest", WORKSPACE_APP_DIR)
     if not workspace_file:
-        logger.error("No workspace file found. Run 'devt workspace init' to create a new workspace.")
+        logger.error(
+            "No workspace file found. Run 'devt workspace init' to create a new workspace."
+        )
         raise ValueError("No workspace file found in the current directory.")
 
     pb = PackageBuilder(package_path=workspace_file.parent)
@@ -85,8 +92,7 @@ def run_workspace(
         raise ValueError(f"Script '{script_name}' not found in the workspace package.")
 
     base_dir = workspace_file.parent.resolve()
-    result = pb.scripts[script_name].execute(base_dir, extra_args=extra_args)
-    logger.info("Command executed with return code %d", result.returncode)
+    pb.scripts[script_name].execute(base_dir, extra_args=extra_args)
 
 
 @execute_app.command("install")
@@ -99,7 +105,7 @@ def install(
     ),
 ):
     """
-    Runs the 'install' script for each given tool.
+    [Execute] Runs the 'install' script for each given tool.
     """
     for tool_command in tool_commands:
         run_script(tool_command, "install", scope=scope, extra_args=[])
@@ -115,7 +121,7 @@ def uninstall(
     ),
 ):
     """
-    Runs the 'uninstall' script for each given tool.
+    [Execute] Runs the 'uninstall' script for each given tool.
     """
     for tool_command in tool_commands:
         run_script(tool_command, "uninstall", scope=scope, extra_args=[])
@@ -131,39 +137,7 @@ def upgrade(
     ),
 ):
     """
-    Runs the 'upgrade' script for each given tool.
+    [Execute] Runs the 'upgrade' script for each given tool.
     """
     for tool_command in tool_commands:
         run_script(tool_command, "upgrade", scope=scope, extra_args=[])
-
-
-@execute_app.command("version")
-def version(
-    tool_commands: List[str] = typer.Argument(..., help="Tool commands to display version"),
-    scope: str = typer.Option(
-        "both",
-        "--scope",
-        help="Registry scope: 'workspace', 'user', or 'both' (default: both)",
-    ),
-):
-    """
-    Runs the 'version' script for each given tool.
-    """
-    for tool_command in tool_commands:
-        run_script(tool_command, "version", scope=scope, extra_args=[])
-
-
-@execute_app.command("test")
-def test(
-    tool_commands: List[str] = typer.Argument(..., help="Tool commands to test"),
-    scope: str = typer.Option(
-        "both",
-        "--scope",
-        help="Registry scope: 'workspace', 'user', or 'both' (default: both)",
-    ),
-):
-    """
-    Runs tool-specific tests for each given tool.
-    """
-    for tool_command in tool_commands:
-        run_script(tool_command, "test", scope=scope, extra_args=[])

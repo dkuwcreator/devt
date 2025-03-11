@@ -15,11 +15,12 @@ import typer
 
 from devt.cli.helpers import check_git_and_exit
 # Removed: from devt.error_wrapper import handle_errors
+from devt.cli.repo_service import RepoServiceWrapper
 from devt.utils import print_table
-from devt.registry.manager import RegistryManager
 from devt.repo_manager import RepoManager
 from devt.cli.sync_service import SyncManager
-from devt.cli.tool_service import ToolService
+from devt.cli.tool_service import ToolServiceWrapper
+from datetime import datetime
 
 repo_app = typer.Typer(help="Repository management commands")
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ def main(ctx: typer.Context) -> None:
     check_git_and_exit()
     ctx.obj = ctx.obj or {}
     ctx.obj["repo_manager"] = RepoManager()
-    ctx.obj["tool_manager"] = ToolService.from_context(ctx)
+    ctx.obj["tool_manager"] = ToolServiceWrapper.from_context(ctx)
     ctx.obj["sync_manager"] = SyncManager.from_context(ctx)
 
 
@@ -57,64 +58,28 @@ def repo_add(
     """
     Adds a repository containing tool packages to the registry.
     """
-    registry = RegistryManager.from_context(ctx)
-    repo_manager = RepoManager()
-    repo_url = source
-    logger.info("Adding repository: %s", repo_url)
-
-    # Force-remove existing repo (local + registry) if requested
-    if force:
-        repo_manager.remove_repo(repo_url)
-        registry.repository_registry.delete_repository(repo_url)
-
-    # Clone the repo locally
-    repo_dir, effective_branch = repo_manager.add_repo(repo_url, branch=branch)
-    display_name = name or repo_dir.name
-    logger.info("Repository cloned at %s", repo_dir)
-
-    # Add repository to the registry
-    registry.repository_registry.add_repository(
-        url=repo_url,
-        name=display_name,
-        branch=effective_branch,
-        location=str(repo_dir),
-        auto_sync=sync,
-    )
-
-    # Import all tools from this repo
-    tool_manager = ToolService.from_context(ctx)
-    tool_manager.import_tool(repo_dir, display_name, force)
+    service = RepoServiceWrapper.from_context(ctx)
+    service.import_repo(source, branch, sync, name, force)
+    typer.echo("Repository added successfully.")
+    
 
 
 @repo_app.command("remove")
 def repo_remove(
     ctx: typer.Context,
     repo_name: str = typer.Argument(..., help="Name of the repository to remove."),
+    scope: str = typer.Option(
+        "both", help="Registry scope: 'workspace', 'user', or 'both' (default: both)"
+    ),
 ) -> None:
     """
     Removes a repository and all its associated tools.
     """
-    registry = RegistryManager.from_context(ctx)
-    repo_manager = RepoManager()
-    repo = registry.repository_registry.get_repo_by_name(name=repo_name)
-
-    # If not found, just log and return
-    if not repo:
-        logger.info("Repository '%s' not found.", repo_name)
-        return
-
-    # Remove from local disk
-    location = repo.get("location")
-    if location:
-        repo_manager.remove_repo(str(location))
-
-    # Remove associated tools
-    tool_manager = ToolService.from_context(ctx)
-    tool_manager.remove_group_tools(repo_name)
-
-    # Remove from registry
-    registry.repository_registry.delete_repository(repo.get("url"))
-
+    logger.debug("Removing repository: %s", repo_name)
+    service = RepoServiceWrapper(scope)
+    service.remove_repo(repo_name)
+    typer.echo("Repository removed successfully.")
+    
 
 @repo_app.command("sync")
 def repo_sync(
@@ -129,50 +94,69 @@ def repo_sync(
     """
     Synchronize repositories (either all or filtered by name).
     """
-    registry = RegistryManager.from_context(ctx)
-    sync_manager = SyncManager.from_context(ctx)
-    repos = registry.repository_registry.list_repositories(name=repo_name)
-
-    if not repos:
-        logger.info("No repositories found to sync.")
-        return
-
-    for repo in repos:
-        sync_manager.sync_single_repository(repo, force)
-
-
+    service = RepoServiceWrapper.from_context(ctx)
+    service.sync_repos(filters={"name": repo_name}, force=force)
+    typer.echo("Repositories synchronized successfully.")
+    
+def format_dt_str(dt_str: str) -> str:
+    if not dt_str:
+        return ""
+    try:
+        dt = datetime.fromisoformat(dt_str)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        logger.error(f"ValueError: {dt_str} is not a valid datetime format")
+        return dt_str
+    except AttributeError:
+        logger.error(f"AttributeError: {dt_str} is not a string")
+        return dt_str
+    
 @repo_app.command("list")
 def repo_list(
     ctx: typer.Context,
-    url: Optional[str] = None,
-    name: Optional[str] = None,
-    branch: Optional[str] = None,
-    location: Optional[str] = None,
-    auto_sync: Optional[bool] = None,
+    url: Optional[str] = typer.Option(None, help="Filter by repository URL"),
+    name: Optional[str] = typer.Option(None, help="Filter by repository name"),
+    branch: Optional[str] = typer.Option(None, help="Filter by repository branch"),
+    location: Optional[str] = typer.Option(None, help="Filter by repository location"),
+    auto_sync: Optional[bool] = typer.Option(None, help="Filter by auto-sync status"),
+    scope: Optional[str] = typer.Option(
+        "both", help="Registry scope: 'workspace', 'user', or 'both' (default: both)"
+    )
 ) -> None:
     """
     Displays all registered repositories and their status.
     """
-    registry = RegistryManager.from_context(ctx)
-    if registry is None:
-        raise ValueError("No valid registry context found.")
-
-    repos = registry.repository_registry.list_repositories(
+    logger.debug(
+        "Listing repositories with filters: url=%s, name=%s, branch=%s, "
+        "location=%s, auto_sync=%s",
+        url,
+        name,
+        branch,
+        location,
+        auto_sync,
+    )
+    service = RepoServiceWrapper(scope)
+    results = service.list_repos(
         url=url, name=name, branch=branch, location=location, auto_sync=auto_sync
     )
-    if repos:
-        headers = ["Name", "URL", "Branch", "Location", "Auto Sync", "Last Update"]
-        rows = [
-            [
-                repo.get("name", ""),
-                repo.get("url", ""),
-                repo.get("branch", ""),
-                repo.get("location", ""),
-                str(repo.get("auto_sync", "")),
-                repo.get("last_update", ""),
+
+    for current_scope, repos in results.items():
+        typer.echo(f"\n{current_scope.capitalize()} Registry:")
+        if repos:
+            headers = ["Name", "URL", "Branch", "Location", "Auto Sync", "Last Update"]
+            rows = [
+                [
+                    repo.get("name", ""),
+                    repo.get("url", ""),
+                    repo.get("branch", ""),
+                    repo.get("location", ""),
+                    str(repo.get("auto_sync", "")),
+                    format_dt_str(repo.get("last_update", "")),
+                ]
+                for repo in repos
             ]
-            for repo in repos
-        ]
-        print_table(headers, rows)  # Minimal necessary user-facing output
-    else:
-        logger.info("No repositories found.")
+            print_table(headers, rows)
+        else:
+            logger.debug("No repositories found.")
+            typer.echo("No repositories found.")
+    typer.echo("\n")

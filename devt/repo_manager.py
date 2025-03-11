@@ -9,14 +9,14 @@ Provides a RepoManager class to add, sync, and remove repositories in a dedicate
 similarly to how local directories are handled.
 """
 
-import shutil
 import logging
 from pathlib import Path
+import shutil
 from urllib.parse import urlparse
 
 from git import Repo
 from devt.constants import USER_REGISTRY_DIR
-from devt.utils import on_exc  # Requires GitPython: pip install GitPython
+from devt.utils import force_remove, on_exc
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class RepoManager:
         self.base_dir: Path = USER_REGISTRY_DIR
         self.repos_dir: Path = self.base_dir / "repos"
         self.repos_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(
+        logger.debug(
             "Initialized RepoManager with repos directory at: %s", self.repos_dir
         )
 
@@ -118,9 +118,9 @@ class RepoManager:
             return repo_dir, current_branch, changes_made
         except Exception as e:
             logger.error("Failed to update repository at %s: %s", repo_dir, e)
-            raise
+            raise ValueError(f"Failed to update repository at {repo_dir}: {e}")
 
-    def add_repo(self, repo_url: str, branch: str = None) -> tuple[Path, str]:
+    def add_repo(self, repo_url: str, branch: str = None, force: bool = False) -> tuple[Path, str]:
         """
         Add a repository by cloning it if not already added or updating it if it exists.
 
@@ -135,18 +135,21 @@ class RepoManager:
             Exception: If cloning or updating fails.
         """
         repo_dir = self._resolve_repo_dir(repo_url)
-        if repo_dir.exists():
+        if force:
+            logger.info("Force-removing existing repository %s...", repo_dir.name)
+            try:
+                shutil.rmtree(repo_dir, onexc=on_exc)
+            except Exception as e:
+                logger.error("Failed to remove repository %s: %s", repo_dir, e)
+                raise ValueError(f"Failed to remove repository {repo_dir}: {e}")
+        elif repo_dir.exists():
             logger.info("Repository %s already exists. Updating...", repo_dir.name)
             updated_dir, current_branch, changes_made = self.sync_repo(repo_dir, branch)
             return updated_dir, current_branch
 
-        try:
-            logger.info("Cloning repository %s...", repo_url)
-            repo = Repo.clone_from(repo_url, repo_dir, branch=branch)
-            return repo_dir, repo.active_branch.name
-        except Exception as e:
-            logger.error("Failed to clone repository %s: %s", repo_url, e)
-            raise
+        logger.info("Cloning repository %s...", repo_url)
+        repo = Repo.clone_from(repo_url, repo_dir, branch=branch)
+        return repo_dir, repo.active_branch.name
 
     def remove_repo(self, repo_url: str) -> bool:
         """

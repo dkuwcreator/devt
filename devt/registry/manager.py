@@ -44,7 +44,7 @@ def session_scope(Session) -> Generator[Any, None, None]:
         session.commit()
     except Exception as exc:
         session.rollback()
-        logger.exception("Session rollback due to exception: %s", exc)
+        logger.error("Session rollback due to exception: %s", exc)
         raise exc
     finally:
         session.close()
@@ -88,13 +88,19 @@ class ScriptRegistry(BaseRegistry):
             "kwargs": script.kwargs,
         }
 
-    def add_script(self, command: str, script_name: str, script: dict) -> None:
+    def add_script(self, command: str, script_name: str, script: dict, force: bool = False) -> None:
         script_data = self._unpack_script_data(script)
+
         with session_scope(self.Session) as session:
-            session.add(
-                ScriptModel(command=command, script_name=script_name, **script_data)
-            )
-        logger.debug("Script '%s' added for command '%s'.", script_name, command)
+            existing_script = session.query(ScriptModel).filter_by(command=command, script_name=script_name).first()
+            if existing_script:
+                if force:
+                    session.delete(existing_script)
+                    logger.info("Existing script '%s' deleted for command '%s'.", script_name, command)
+                else:
+                    raise ValueError("Script already exists. Use --force to overwrite.")
+            session.add(ScriptModel(command=command, script_name=script_name, **script_data))
+            logger.debug("Script '%s' added for command '%s'.", script_name, command)
 
     def get_script(self, command: str, script_name: str) -> Optional[dict]:
         with self.Session() as session:
@@ -160,14 +166,24 @@ class PackageRegistry(BaseRegistry):
             "last_update": package.last_update.isoformat(),
         }
 
-    def add_package(self, **kwargs) -> None:
+    def add_package(self, **kwargs: Any) -> None:
         now_dt = datetime.now()
         kwargs["install_date"] = now_dt
         kwargs["last_update"] = now_dt
 
+        command = kwargs.get("command")
+        force = kwargs.pop("force", False)
+
         with session_scope(self.Session) as session:
+            existing_pkg = session.query(PackageModel).filter_by(command=command).first()
+            if existing_pkg:
+                if force:
+                    session.delete(existing_pkg)
+                    logger.info("Existing package '%s' deleted.", command)
+                else:
+                    raise ValueError("Package already exists. Use --force to overwrite.")
             session.add(PackageModel(**kwargs))
-        logger.debug("Package '%s' added.", kwargs.get("command"))
+            logger.debug("Package '%s' added.", command)
 
     def get_package(self, command: str) -> Optional[Dict[str, Any]]:
         with self.Session() as session:
@@ -183,7 +199,7 @@ class PackageRegistry(BaseRegistry):
         group: Optional[str] = None,
         active: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
-        logger.info("Listing packages with filters.")
+        logger.debug("Listing packages with filters.")
         with session_scope(self.Session) as session:
             query = session.query(PackageModel)
             if command:
@@ -265,14 +281,24 @@ class RepositoryRegistry(BaseRegistry):
             "last_update": repo.last_update.isoformat(),
         }
 
-    def add_repository(self, **kwargs) -> None:
+    def add_repository(self, **kwargs: Any) -> None:
         now_dt = datetime.now()
         kwargs.setdefault("install_date", now_dt)
         kwargs.setdefault("last_update", now_dt)
 
+        url = kwargs.get("url")
+        force = kwargs.pop("force", False)
+
         with session_scope(self.Session) as session:
+            existing_repo = session.query(RepositoryModel).filter_by(url=url).first()
+            if existing_repo:
+                if force:
+                    session.delete(existing_repo)
+                    logger.info("Existing repository '%s' deleted.", url)
+                else:
+                    raise ValueError("Repository already exists. Use --force to overwrite.")
             session.add(RepositoryModel(**kwargs))
-        logger.debug("Repository '%s' added.", kwargs.get("url"))
+            logger.debug("Repository '%s' added.", url)
 
     def get_repository(self, url: str) -> Optional[Dict[str, Any]]:
         with self.Session() as session:
@@ -363,31 +389,31 @@ class RegistryManager:
         logger.info("Registry tables dropped and recreated.")
 
     def register_package(self, pkg: Dict[str, Any], force: bool = False) -> None:
-        if force:
-            self.unregister_package(pkg["command"])
-        pkg_data = pkg.copy()
-        scripts = pkg_data.pop("scripts", {})
-        self.package_registry.add_package(**pkg_data)
+        logger.info("Registering package: %s", pkg.get("command"))
+        scripts = pkg.pop("scripts", {})
         for script_name, script in scripts.items():
-            self.script_registry.add_script(pkg_data["command"], script_name, script)
-
+            self.script_registry.add_script(pkg["command"], script_name, script, force=force)
+        self.package_registry.add_package(**pkg)
+        
     def update_package(self, pkg: Dict[str, Any]) -> None:
-        pkg_data = pkg.copy()
-        scripts = pkg_data.pop("scripts", {})
-        command = pkg_data.get("command")
+        logger.info("Updating package: %s", pkg.get("command"))
+        scripts = pkg.pop("scripts", {})
+        command = pkg.get("command")
         if not command:
             raise ValueError("Missing package 'command' field for update.")
-        update_data = {k: v for k, v in pkg_data.items() if k != "command"}
+        update_data = {k: v for k, v in pkg.items() if k != "command"}
         self.package_registry.update_package(command, **update_data)
         for script_name, script in scripts.items():
             self.script_registry.update_script(command, script_name, script)
 
     def unregister_package(self, command: str) -> None:
+        logger.info("Unregistering package: %s", command)
         self.package_registry.delete_package(command)
         for script in self.script_registry.list_scripts(command):
             self.script_registry.delete_script(script["command"], script["script_name"])
 
     def retrieve_package(self, command: str) -> Optional[Dict[str, Any]]:
+        logger.debug("Retrieving package: %s", command)
         pkg = self.package_registry.get_package(command)
         if pkg:
             pkg["scripts"] = {
@@ -395,3 +421,63 @@ class RegistryManager:
                 for script in self.script_registry.list_scripts(command)
             }
         return pkg
+
+    def list_packages(
+        self,
+        command: Optional[str] = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        location: Optional[str] = None,
+        group: Optional[str] = None,
+        active: Optional[bool] = None,
+    ) -> List[Dict[str, Any]]:
+        logger.debug("Listing packages with filters.")
+        return self.package_registry.list_packages(
+            command=command,
+            name=name,
+            description=description,
+            location=location,
+            group=group,
+            active=active,
+        )
+
+    def register_repository(self, **kwargs: Any) -> None:
+        logger.info("Registering repository: %s", kwargs.get("url"))
+        self.repository_registry.add_repository(**kwargs)
+
+    def update_repository(self, url: str, **kwargs: Any) -> None:
+        logger.info("Updating repository: %s", url)
+        self.repository_registry.update_repository(url, **kwargs)
+
+    def unregister_repository(self, url: str) -> None:
+        logger.info("Unregistering repository: %s", url)
+        self.repository_registry.delete_repository(url)
+
+    def retrieve_repository(self, url: str) -> Optional[Dict[str, Any]]:
+        logger.debug("Retrieving repository: %s", url)
+        return self.repository_registry.get_repository(url)
+
+    def list_repositories(
+        self,
+        url: Optional[str] = None,
+        name: Optional[str] = None,
+        branch: Optional[str] = None,
+        location: Optional[str] = None,
+        auto_sync: Optional[bool] = None,
+    ) -> List[Dict[str, Any]]:
+        logger.debug(
+            "Listing repositories with filters: url=%s, name=%s, branch=%s, "
+            "location=%s, auto_sync=%s",
+            url,
+            name,
+            branch,
+            location,
+            auto_sync,
+        )
+        return self.repository_registry.list_repositories(
+            url=url, name=name, branch=branch, location=location, auto_sync=auto_sync
+        )
+
+    def get_repo_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        logger.debug("Retrieving repository by name: %s", name)
+        return self.repository_registry.get_repo_by_name(name)

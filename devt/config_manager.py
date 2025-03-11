@@ -29,7 +29,15 @@ class ConfigManager:
         "log_level": "WARNING",
         "log_format": "default",
         "auto_sync": True,
-        "env_file": ".env",  # New configurable key for environment file name.
+        "env_file": ".env",
+    }
+
+    # Valid options for specific config keys:
+    VALID_OPTIONS = {
+        "scope": {"user", "workspace"},
+        "log_level": {"DEBUG", "INFO", "WARNING", "ERROR"},
+        "log_format": {"default", "detailed"},
+        "auto_sync": {True, False},
     }
 
     def __init__(self, runtime_options: Dict[str, Any] = None):
@@ -91,6 +99,15 @@ class ConfigManager:
         save_json(self.CONFIG_FILE, self.user_config)
         self._update_effective_config()
 
+    def validate_config_value(self, key: str, value: Any) -> None:
+        """
+        Validates a configuration value for keys having a controlled set of valid options.
+        """
+        if key in self.VALID_OPTIONS:
+            if value not in self.VALID_OPTIONS[key]:
+                valid_vals = ", ".join(f"'{v}'" for v in self.VALID_OPTIONS[key])
+                raise ValueError(f"Invalid value for '{key}': {value}. Valid options are: {valid_vals}.")
+
     def get_config_value(self, key: str, default: Any = None) -> Any:
         """
         Retrieves a configuration value by key, with an optional default if not set.
@@ -99,8 +116,9 @@ class ConfigManager:
 
     def set_config_value(self, key: str, value: Any) -> None:
         """
-        Sets a single configuration value and persists the change.
+        Sets a single configuration value, validates it, and persists the change.
         """
+        self.validate_config_value(key, value)
         self.user_config[key] = value
         self._save_user_config()
         logger.debug("Set config key '%s' to '%s'.", key, value)
@@ -147,6 +165,9 @@ class ConfigManager:
                 # For strings (and other types), no conversion is needed.
             except Exception as e:
                 raise ValueError(f"Error converting value for '{key}': {e}")
+
+            # Validate the value if necessary
+            self.validate_config_value(key, value)
 
             updates[key] = value
 
