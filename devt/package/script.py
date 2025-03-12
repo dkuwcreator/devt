@@ -114,14 +114,26 @@ class Script:
         """
         Map the script's working directory to a common value if provided.
         """
+        logger.debug("Mapping working directory: %s", cwd_value)
+        if cwd_value == ".":  # Default to current directory
+            logger.debug("cwd_value is '.', defaulting to current working directory.")
+            return Path(cwd_value)
         if isinstance(cwd_value, str):
             parts = cwd_value.split('/', 1)
+            logger.debug("Splitting cwd_value '%s' into parts: %s", cwd_value, parts)
             base_key = parts[0]
             if base_key in CWD_PATH_MAPPING:
+                logger.debug("Found base_key '%s' in CWD_PATH_MAPPING: %s", base_key, CWD_PATH_MAPPING)
                 base_path = CWD_PATH_MAPPING[base_key]
                 if len(parts) == 2:
-                    return base_path / parts[1]
+                    combined_path = base_path / parts[1]
+                    logger.debug("Combining base_path '%s' with additional path '%s' to get '%s'", base_path, parts[1], combined_path)
+                    return combined_path
+                logger.debug("Returning base_path '%s'", base_path)
                 return base_path
+            else:
+                logger.debug("base_key '%s' not found in CWD_PATH_MAPPING. Using provided cwd_value.", base_key)
+        logger.debug("Returning cwd_value as Path: %s", cwd_value)
         return Path(cwd_value)
 
     def resolve_cwd(self, base_dir: Path, auto_create: bool = False) -> Path:
