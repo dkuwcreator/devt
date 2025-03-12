@@ -65,17 +65,22 @@ if (-not $files) {
 }
 
 foreach ($file in $files) {
-    # Create a REST endpoint URL. The file name is appended to the URL.
-    $uri = "https://artifactory.insim.biz/artifactory/devt/releases/download/$latestTag/$($file.Name)"
-    Write-Host "Uploading file: $($file.FullName) to $uri"
+    # Create REST endpoint URLs for tag-specific and latest directories.
+    $uriTag = "https://artifactory.insim.biz/artifactory/devt/releases/download/$latestTag/$($file.Name)"
+    $uriLatest = "https://artifactory.insim.biz/artifactory/devt/releases/download/latest/$($file.Name)"
     
+    Write-Host "Uploading file: $($file.FullName) to $uriTag"
     $requestParams = @{
         Method  = 'PUT'
-        Uri     = $uri
+        Uri     = $uriTag
         InFile  = $file.FullName
         Headers = @{ Authorization = $credentialHeader }
     }
-    
-    # Invoke the REST method to upload the file
+    # Upload to the tag-specific folder
+    Invoke-RestMethod @requestParams
+
+    Write-Host "Uploading file: $($file.FullName) to $uriLatest"
+    # Reuse the same requestParams for the latest directory upload
+    $requestParams.Uri = $uriLatest
     Invoke-RestMethod @requestParams
 }

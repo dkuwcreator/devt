@@ -2,7 +2,9 @@
 
 ### Sharing Development Tools Made Easy
 
-install devt on your system by running the following command:
+## Quick Start
+
+Install `DevT` on your system by running the following command:
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/dkuwcreator/devt/main/install.sh | bash
@@ -10,6 +12,30 @@ wget -qO- https://raw.githubusercontent.com/dkuwcreator/devt/main/install.sh | b
 or 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/dkuwcreator/devt/main/install.ps1 | iex
+```
+
+To add a repo with packages, use the following command:
+
+```bash
+devt repo add https://example.com/tool-repo.git
+```
+
+For example, to install a package from the repo, use the following command:
+
+```bash
+devt repo add https://github.com/dkuwcreator/devt-tools.git
+```
+
+List all available tools with the following command:
+
+```bash
+devt list
+```
+
+To install a tool, use the following command:
+
+```bash
+devt install <tool>
 ```
 
 ## What is DevT?

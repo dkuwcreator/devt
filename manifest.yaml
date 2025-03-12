@@ -6,6 +6,8 @@ command: workspace
 scripts:
   build: py build.py
   windows:
+    fetch_exes: ./scripts/fetch_exes.ps1
+    put_exes: ./scripts/put_exes.ps1
     clean: ./scripts/clean_env.ps1
     replace: |
       Remove-Item -Path $env:USERPROFILE\devt -Recurse -Force -ErrorAction SilentlyContinue
