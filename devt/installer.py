@@ -11,8 +11,6 @@ updates the user PATH, and optionally restarts the application.
 import platform
 import sys
 import subprocess
-import shutil
-import time
 import logging
 import os
 from pathlib import Path

@@ -19,11 +19,16 @@ def needs_shell_fallback(args, posix: bool) -> bool:
     """
     Determine whether the given command requires a shell fallback.
     """
+    logger.debug("Checking if shell fallback is needed for args: %s, posix: %s", args, posix)
     if isinstance(args, list):
         first_arg = args[0]
     else:
         first_arg = shlex.split(args, posix=posix)[0]
-    return shutil.which(first_arg) is None
+    logger.debug("First argument resolved to: %s", first_arg)
+    which_result = shutil.which(first_arg)
+    print(which_result)
+    logger.debug("shutil.which(%s) returned: %s", first_arg, which_result)
+    return which_result is None
 
 
 def default_shell_prefix(command: str, is_windows: bool) -> list:

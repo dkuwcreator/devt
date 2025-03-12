@@ -56,8 +56,7 @@ def get_os_suffix() -> str:
     
     For Windows, appends '.exe' (e.g. "windows.exe"); for other OSes, returns the OS key.
     """
-    key = get_os_key()
-    return key + ".exe" if platform.system() == "Windows" else key
+    return ".exe" if platform.system() == "Windows" else ""
 
 
 def fetch_json(url: str, timeout_connect: float = 10.0, timeout_read: float = 10.0) -> dict:

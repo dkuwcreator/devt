@@ -259,20 +259,20 @@ class Script:
         typer.secho(f"{script_border}\n", fg=typer.colors.BRIGHT_CYAN)
         result = subprocess.run(**config)
 
-        # if result.returncode != 0:
-        #     typer.secho(f"\n{script_border}", fg=typer.colors.YELLOW)
-        #     typer.secho("Initial command failed! Attempting fallback execution...", fg=typer.colors.YELLOW, bold=True)
-        #     fallback_config = self.prepare_subprocess_args(
-        #     base_dir,
-        #     shell="",
-        #     extra_args=extra_args,
-        #     auto_create_cwd=auto_create_cwd,
-        #     )
-        #     fallback_config["shell"] = True
-        #     typer.secho(f"\n{script_border}", fg=typer.colors.CYAN)
-        #     typer.secho(f"Fallback command:\n{fallback_config['args']}", fg=typer.colors.CYAN, bold=True)
-        #     typer.secho(f"{script_border}\n", fg=typer.colors.CYAN)
-        #     result = subprocess.run(**fallback_config)
+        if result.returncode != 0:
+            typer.secho(f"\n{script_border}", fg=typer.colors.YELLOW)
+            typer.secho("Initial command failed! Attempting fallback execution...", fg=typer.colors.YELLOW, bold=True)
+            fallback_config = self.prepare_subprocess_args(
+            base_dir,
+            shell="",
+            extra_args=extra_args,
+            auto_create_cwd=auto_create_cwd,
+            )
+            fallback_config["shell"] = True
+            typer.secho(f"\n{script_border}", fg=typer.colors.CYAN)
+            typer.secho(f"Fallback command:\n{fallback_config['args']}", fg=typer.colors.CYAN, bold=True)
+            typer.secho(f"{script_border}\n", fg=typer.colors.CYAN)
+            result = subprocess.run(**fallback_config)
 
         if result.returncode != 0:
             typer.secho(f"\n{script_border}", fg=typer.colors.BRIGHT_RED)

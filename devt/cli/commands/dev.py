@@ -91,7 +91,7 @@ def dev_customize(
     logger.info("Starting tool customization: command=%s, force=%s", command, force)
     service = ToolServiceWrapper.from_context(ctx)
     service.export_tool(
-        command, DEVELOP_DIR, as_zip=False, force=force
+        command, DEVELOP_DIR / command, as_zip=False, force=force
     )
     logger.info("Tool customization completed successfully for command: %s", command)
 

@@ -19,7 +19,7 @@ import typer
 from packaging import version  # used for comparing versions
 
 from devt import __version__
-from devt.common import get_os_suffix, resolve_version, download_file
+from devt.common import get_os_key, get_os_suffix, resolve_version, download_file
 from devt.config_manager import ConfigManager
 from devt.constants import APP_NAME, USER_REGISTRY_DIR
 from devt.utils import force_remove, on_exc
@@ -53,11 +53,12 @@ def get_updater_download_url(version_str: str = "latest") -> str:
     Build the updater download URL dynamically.
     
     The URL format is:
-      https://github.com/dkuwcreator/devt/releases/download/<version>/devt-<os_suffix>-installer
+      https://github.com/dkuwcreator/devt/releases/download/<version>/devt-<os_key>-installer<os_suffix>
     """
     resolved_version = resolve_version(version_str)
+    os_key = get_os_key()
     os_suffix = get_os_suffix()
-    url = f"https://github.com/dkuwcreator/devt/releases/download/{resolved_version}/devt-{os_suffix}-installer"
+    url = f"https://github.com/dkuwcreator/devt/releases/download/{resolved_version}/devt-{os_key}-installer{os_suffix}"
     logger.info("Updater download URL: %s", url)
     return url
 
