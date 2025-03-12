@@ -26,7 +26,11 @@ def needs_shell_fallback(args, posix: bool) -> bool:
         first_arg = shlex.split(args, posix=posix)[0]
     logger.debug("First argument resolved to: %s", first_arg)
     which_result = shutil.which(first_arg)
-    print(which_result)
+    # Exclude executables from a local virtual environment (e.g., containing ".venv")
+    if which_result and ".venv" in which_result:
+        logger.debug("Excluding local virtual environment executable: %s", which_result)
+        return True
+    
     logger.debug("shutil.which(%s) returned: %s", first_arg, which_result)
     return which_result is None
 

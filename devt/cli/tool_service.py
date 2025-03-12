@@ -163,14 +163,14 @@ class ToolService:
 
     def sync_tools(self) -> None:
         """
-        Synchronizes all active tool packages by re-importing them from disk.
+        Synchronizes all active tool packages by re-importing them from disk
+        using force=True to overwrite the packages.
         """
         count = 0
         active_packages = self.registry.package_registry.list_packages(active=True)
         for pkg in active_packages:
-            pkg_location = Path(pkg["location"])
-            new_pkg = self.registry.update_package(pkg_location, pkg["group"])
-            self.registry.register_package(new_pkg.to_dict(), force=True)
+            # Re-import the tool package with force option enabled.
+            self.import_tool(Path(pkg["location"]), pkg["group"], force=True)
             count += 1
             logger.info("Synced tool '%s' in group '%s'.", pkg["command"], pkg["group"])
         logger.info("Synced %d tools.", count)

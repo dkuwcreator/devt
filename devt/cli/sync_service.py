@@ -13,8 +13,6 @@ import time
 import typer
 import logging
 from devt.cli.tool_service import ToolService
-from devt.constants import SCOPE_TO_REGISTRY_DIR
-from devt.package.manager import PackageManager
 from devt.registry.manager import RegistryManager
 from devt.repo_manager import RepoManager
 from datetime import datetime
@@ -23,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class SyncManager:
-    SYNC_INTERVAL = 300  # 5 minutes
+    SYNC_INTERVAL = 30  # seconds
 
     @classmethod
     def from_context(cls, ctx: typer.Context) -> "SyncManager":
@@ -47,6 +45,12 @@ class SyncManager:
             last_update_dt = datetime.fromisoformat(last_update_str)
             now = datetime.now(last_update_dt.tzinfo)
             elapsed = (now - last_update_dt).total_seconds()
+            logger.debug(
+                "Repository sync check details - elapsed: %.2f seconds, sync interval: %d seconds, force sync: %s",
+                elapsed,
+                self.SYNC_INTERVAL,
+                force,
+            )
             if elapsed < self.SYNC_INTERVAL and not force:
                 logger.info(
                     "Skipping sync for '%s' as last update was %.2f seconds ago (< SYNC_INTERVAL).",

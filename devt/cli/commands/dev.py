@@ -76,6 +76,7 @@ def dev_create(
         command,
         file_format_lower.upper(),
     )
+    typer.echo(f"Tool '{command}' created successfully.")
 
 @dev_app.command("customize")
 def dev_customize(
@@ -94,6 +95,7 @@ def dev_customize(
         command, DEVELOP_DIR / command, as_zip=False, force=force
     )
     logger.info("Tool customization completed successfully for command: %s", command)
+    typer.echo("Tool customization completed successfully.")
 
 @dev_app.command("do")
 def dev_do(
@@ -118,6 +120,7 @@ def dev_do(
 
     base_dir = workspace_file.parent.resolve()
     script.execute(base_dir, extra_args=extra_args)
+    logger.info("Script execution completed successfully.")
 
 @dev_app.command("import")
 def dev_import(
@@ -140,3 +143,4 @@ def dev_import(
     tool_path = DEVELOP_DIR / command
     service.import_tool(tool_path, group or "default", force)
     logger.info("Tool import completed successfully for command: %s", command)
+    typer.echo("Tool import completed successfully.")

@@ -187,6 +187,7 @@ def tool_remove(
     service = ToolServiceWrapper.from_context(ctx)
     service.remove_tool(command)
     logger.info("Tool '%s' removed successfully.", command)
+    typer.echo("Tool removed successfully.")
 
 
 @tool_app.command("remove-group")
@@ -201,6 +202,7 @@ def tool_remove_group(
     service = ToolServiceWrapper.from_context(ctx)
     service.remove_group_tools(group)
     logger.info("All tools in group '%s' removed successfully.", group)
+    typer.echo("All tools in group removed successfully.")
 
 
 @tool_app.command("move")
@@ -222,6 +224,7 @@ def tool_move(
     service = ToolServiceWrapper.from_context(ctx)
     service.move_tool(command, to, force)
     logger.info("Tool '%s' moved to '%s' registry.", command, to)
+    typer.echo(f"Tool '{command}' moved to '{to}' registry.")
 
 
 @tool_app.command("export")
@@ -239,6 +242,7 @@ def tool_export(
     service = ToolServiceWrapper.from_context(ctx)
     service.export_tool(tool_command, output, as_zip, force)
     logger.info("Tool '%s' exported successfully to %s.", tool_command, output)
+    typer.echo(f"Tool '{tool_command}' exported successfully to {output}.")
 
 
 @tool_app.command("sync")
@@ -249,6 +253,8 @@ def tool_sync(ctx: typer.Context):
     logger.info("Starting tool synchronization.")
     service = ToolServiceWrapper.from_context(ctx)
     service.sync_tools()
+    logger.info("Tool synchronization completed successfully.")
+    typer.echo("Tool synchronization completed successfully.")
 
 @tool_app.command("open")
 def tool_open(

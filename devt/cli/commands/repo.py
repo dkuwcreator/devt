@@ -75,10 +75,14 @@ def repo_remove(
     """
     Removes a repository and all its associated tools.
     """
+    if scope == "both":
+        logger.warning(
+            "It is recommended to specify the scope, as removing from both scopes may lead to unclear removal behavior."
+        )
     logger.debug("Removing repository: %s", repo_name)
     service = RepoServiceWrapper(scope)
     service.remove_repo(repo_name)
-    typer.echo("Repository removed successfully.")
+    typer.echo(f"Repository removed successfully from the {service.found_scope} registry.")
     
 
 @repo_app.command("sync")

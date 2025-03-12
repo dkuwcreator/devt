@@ -74,6 +74,36 @@ def see_env(
         typer.echo(f"{key}={value}")
         logger.info("%s=%s", key, value)
 
+@env_app.command("list")
+def list_env(
+    env_file: Path = typer.Option(
+        None, help="Path to the environment file (overrides config setting)"
+    )
+):
+    """
+    List all environment variables in the dotenv file.
+    """
+    env_path = resolve_env_file(env_file)
+    if not env_path.exists():
+        logger.info("Environment file '%s' does not exist.", env_path)
+        raise ValueError(f"Environment file '{env_path}' does not exist.")
+    
+    env_file_str = str(env_path)
+    env_vars = dict()
+
+    with open(env_file_str, "r") as file:
+        for line in file:
+            key, value = line.strip().split("=", 1)
+            env_vars[key] = value
+
+    if not env_vars:
+        logger.info("No environment variables found in %s", env_path)
+    else:
+        # Minimal output for the user
+        for key, value in env_vars.items():
+            typer.echo(f"{key}={value}")
+        logger.info("Displayed environment variables: %s", env_vars)
+
 
 @env_app.command("remove")
 def remove_env(
@@ -93,3 +123,4 @@ def remove_env(
     else:
         unset_key(env_file_str, key)
         logger.info("Removed %s from %s", key, env_path)
+    typer.echo(f"Removed {key} from {env_path}")
