@@ -128,6 +128,8 @@ class Script:
         """
         Resolve the script's working directory relative to base_dir.
         """
+        logger.debug("Resolving working directory: %s", self.cwd)
+        logger.debug("Base directory: %s", base_dir)
         resolved = (
             self.cwd if self.cwd.is_absolute() else (base_dir / self.cwd).resolve()
         )
