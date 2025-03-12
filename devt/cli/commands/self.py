@@ -23,6 +23,7 @@ from devt.common import get_os_key, get_os_suffix, resolve_version, download_fil
 from devt.config_manager import ConfigManager
 from devt.constants import APP_NAME, USER_REGISTRY_DIR
 from devt.utils import force_remove, on_exc
+
 # Removed: from devt.error_wrapper import handle_errors
 
 logger = logging.getLogger(__name__)
@@ -38,8 +39,12 @@ def notify_upgrade_if_available(current_version: str, latest_version: str) -> No
     """
     Notify the user if an upgrade is available.
     """
-    logger.info("Current version: %s, Latest version: %s", current_version, latest_version)
-    if latest_version and version.parse(latest_version) > version.parse(current_version):
+    logger.info(
+        "Current version: %s, Latest version: %s", current_version, latest_version
+    )
+    if latest_version and version.parse(latest_version) > version.parse(
+        current_version
+    ):
         typer.echo(
             f"Upgrade available: {latest_version} (installed: {current_version})\n"
             f"Run '{APP_NAME} self upgrade' to update."
@@ -51,7 +56,7 @@ def notify_upgrade_if_available(current_version: str, latest_version: str) -> No
 def get_updater_download_url(version_str: str = "latest") -> str:
     """
     Build the updater download URL dynamically.
-    
+
     The URL format is:
       https://github.com/dkuwcreator/devt/releases/download/<version>/devt-<os_key>-installer<os_suffix>
     """
@@ -67,13 +72,17 @@ def get_installer_filename() -> str:
     """
     Determine the local filename for the installer executable based on the platform.
     """
-    return f"{APP_NAME}-installer.exe" if platform.system() == "Windows" else f"{APP_NAME}-installer"
+    return (
+        f"{APP_NAME}-installer.exe"
+        if platform.system() == "Windows"
+        else f"{APP_NAME}-installer"
+    )
 
 
 def get_install_dir() -> Path:
     """
     Return the installation directory of the executable or script.
-    
+
     If the app is running as a frozen binary, the directory is determined from sys.executable.
     Otherwise, it uses the location of this file.
     """
@@ -134,10 +143,20 @@ def self_upgrade() -> None:
         return
 
     logger.info("Checking for updates...")
+    typer.echo("Checking for updates...")
+
+    # Check if the latest version is already installed.
+    latest_version = resolve_version("latest")
+    if latest_version and version.parse(latest_version) <= version.parse(__version__):
+        logger.info("Latest version (%s) already installed.", __version__)
+        typer.echo("You already have the latest version installed.")
+        return
+
     install_dir = get_install_dir()
     install_dir.mkdir(exist_ok=True)
     logger.info("Ensured installation directory exists: %s", install_dir)
 
+    typer.echo("Downloading the updater...")
     download_url = get_updater_download_url("latest")
     installer_filename = get_installer_filename()
     installer_path = install_dir / installer_filename
@@ -146,7 +165,7 @@ def self_upgrade() -> None:
         download_url,
         installer_path,
         timeout_connect=TIMEOUT_CONNECT,
-        timeout_read=TIMEOUT_DOWNLOAD_READ
+        timeout_read=TIMEOUT_DOWNLOAD_READ,
     ):
         logger.error("Updater download failed. Aborting upgrade.")
         raise RuntimeError("Updater download failed.")
@@ -155,7 +174,9 @@ def self_upgrade() -> None:
 
     subprocess.Popen([str(installer_path), str(install_dir)], close_fds=True)
     logger.info("Updater started. Closing DevT...")
+    typer.echo("Updater started, please wait. Closing DevT...")
     sys.exit(0)
+
 
 @self_app.command("reset")
 def self_reset() -> None:
@@ -163,17 +184,21 @@ def self_reset() -> None:
     Reset the application to its initial state by removing the Registry directory.
     """
     logger.info("Resetting the application to its initial state.")
+    typer.confirm(
+        "This action will remove all user data and configurations. Continue?",
+        abort=True,
+    )
     # Delete the User Registry folder
     try:
         shutil.rmtree(USER_REGISTRY_DIR / "repos", onexc=on_exc)
     except Exception as e:
-        logger.error("Failed to remove repository %s: %s", USER_REGISTRY_DIR / "repos", e)
+        logger.error(
+            "Failed to remove repository %s: %s", USER_REGISTRY_DIR / "repos", e
+        )
     force_remove(USER_REGISTRY_DIR)
-    
+
     logger.info("User Registry folder removed.")
     # Reset the configuration
     logger.info("Resetting the configuration.")
     ConfigManager().reset()
-    
-    
-
+    typer.echo("Application reset successfully.")

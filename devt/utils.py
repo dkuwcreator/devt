@@ -273,8 +273,6 @@ def determine_source(source: str) -> str:
 
 
 def on_exc(func, path, exc):
-    import os
-
     logger.debug("Handling exception for path: %s; Exception: %s", path, exc)
     if isinstance(exc, PermissionError):
         os.chmod(path, 0o777)
@@ -319,29 +317,51 @@ def validate_manifest(manifest: dict) -> bool:
 def print_table(
     headers: List[str], rows: List[List[str]], max_field_length: int = 30
 ) -> List[str]:
-    logger.debug("Printing table with headers: %s", headers)
+    terminal_width = shutil.get_terminal_size(fallback=(60, 20)).columns
+    logger.debug("Terminal width: %s", terminal_width)
 
     def truncate_field(text: str, width: int) -> str:
         if len(text) > width:
             return text[: max(width - 3, 0)] + "..." if width > 3 else text[:width]
         return text
 
-    # Calculate column widths but limit them to max_field_length
-    col_widths = [
-        min(
-            max(len(headers[i]), max((len(row[i]) for row in rows), default=0)),
-            max_field_length,
-        )
-        for i in range(len(headers))
+    n = len(headers)
+    # Compute the ideal width for each column (the maximum width needed for header and row content)
+    ideal_widths = [
+        max(len(headers[i]), max((len(row[i]) for row in rows), default=0))
+        for i in range(n)
     ]
+    # Cap each column's width at max_field_length initially.
+    col_widths = [min(ideal_widths[i], max_field_length) for i in range(n)]
 
-    # Build the formatted header line with truncation if needed
+    # Calculate the total table width, including padding (2 per column) and borders (n+1).
+    current_total = sum(w + 2 for w in col_widths) + (n + 1)
+    logger.debug("Current total table width: %d", current_total)
+
+    # Distribute extra space only to columns whose content would otherwise be truncated.
+    extra_space = terminal_width - current_total
+    if extra_space > 0:
+        while extra_space > 0:
+            updated = False
+            for i in range(n):
+                # Only extend the column if it's truncated (i.e. its ideal width is larger than its current width)
+                if col_widths[i] < ideal_widths[i]:
+                    col_widths[i] += 1
+                    extra_space -= 1
+                    updated = True
+                    if extra_space <= 0:
+                        break
+            if not updated:
+                break  # No more eligible columns
+
+    logger.debug("Adjusted column widths: %s", col_widths)
+
     separator = "+" + "+".join("-" * (w + 2) for w in col_widths) + "+"
     header_line = (
         "|"
         + "|".join(
             f" {truncate_field(headers[i], col_widths[i]).ljust(col_widths[i])} "
-            for i in range(len(headers))
+            for i in range(n)
         )
         + "|"
     )
@@ -355,7 +375,7 @@ def print_table(
             "|"
             + "|".join(
                 f" {truncate_field(row[i], col_widths[i]).ljust(col_widths[i])} "
-                for i in range(len(row))
+                for i in range(n)
             )
             + "|"
         )
