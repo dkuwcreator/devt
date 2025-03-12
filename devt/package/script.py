@@ -131,7 +131,14 @@ class Script:
         resolved = (
             self.cwd if self.cwd.is_absolute() else (base_dir / self.cwd).resolve()
         )
+        home_dir = Path.home()
+        logger.debug("Resolved working directory: %s", resolved)
+        logger.debug("Home directory: %s", home_dir)
         if not (str(resolved).startswith(str(Path.home()))):
+            logger.error(
+                "Relative path '%s' cannot be resolved outside the home directory.",
+                self.cwd,
+            )
             raise ValueError(
                 "Relative path cannot be resolved outside the home directory."
             )
