@@ -38,7 +38,7 @@ class LoggerManager:
         self.log_file = self.logs_dir / "devt.log"
         
         # Ensure the logs directory exists.
-        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir.mkdir(exist_ok=True)
         
         # Configure the root logger.
         self.configure_logging(log_level)

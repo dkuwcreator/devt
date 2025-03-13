@@ -71,16 +71,18 @@ class RepoService:
         repo = self.registry.repository_registry.get_repo_by_name(name=repo_name)
         if not repo:
             logger.info("Repository '%s' not found.", repo_name)
-            return
+            raise ValueError(f"Repository '{repo_name}' not found.")	
+        
+        self.tool_service.remove_group_tools(repo_name)
 
+        self.registry.unregister_repository(repo.get("url"))
+        
         location = repo.get("location")
         if location:
             self.repo_manager.remove_repo(str(location))
             logger.info("Removed repository '%s'.", repo_name)
 
-        self.tool_service.remove_group_tools(repo_name)
 
-        self.registry.unregister_repository(repo.get("url"))
 
     def sync_repos(self, filters: Dict[str, Optional[str]], force: bool) -> None:
         """Synchronizes all repositories by re-importing them from disk."""

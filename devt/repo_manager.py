@@ -38,7 +38,7 @@ class RepoManager:
         """
         self.base_dir: Path = USER_REGISTRY_DIR
         self.repos_dir: Path = self.base_dir / "repos"
-        self.repos_dir.mkdir(parents=True, exist_ok=True)
+        self.repos_dir.mkdir(exist_ok=True)
         logger.debug(
             "Initialized RepoManager with repos directory at: %s", self.repos_dir
         )
@@ -162,16 +162,8 @@ class RepoManager:
             bool: True if the repository was removed successfully, False otherwise.
         """
         repo_dir = self._resolve_repo_dir(repo_url)
-        if repo_dir.exists():
-            try:
-                shutil.rmtree(repo_dir, onexc=on_exc)
-                logger.info("Repository '%s' removed successfully.", repo_dir)
-                return True
-            except Exception as e:
-                logger.error("Failed to remove repository '%s': %s", repo_dir, e)
-                return False
-        logger.warning("Repository '%s' does not exist.", repo_dir)
-        return False
+        shutil.rmtree(repo_dir, onexc=on_exc)
+        logger.info("Repository '%s' removed successfully.", repo_dir)
 
     def checkout_branch(self, repo_dir: str, branch: str) -> bool:
         """

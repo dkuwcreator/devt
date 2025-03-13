@@ -95,7 +95,7 @@ def workspace_init(
                 f.write(append_lines)
             logger.info("Added DevTools entries to .gitignore")
 
-    WORKSPACE_REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
+    WORKSPACE_REGISTRY_DIR.mkdir(exist_ok=True)
 
     logger.info(
         "Project initialized successfully with %s format.", file_format_lower.upper()
@@ -123,4 +123,4 @@ def workspace_reset():
     # Delete the User Registry folder
     force_remove(WORKSPACE_REGISTRY_DIR)
     logger.info("Workspace Registry folder removed.")
-    WORKSPACE_REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
+    WORKSPACE_REGISTRY_DIR.mkdir(exist_ok=True)

@@ -32,10 +32,10 @@ def main(ctx: typer.Context) -> None:
     Manage repositories containing tool packages.
     """
     check_git_and_exit()
-    ctx.obj = ctx.obj or {}
-    ctx.obj["repo_manager"] = RepoManager()
-    ctx.obj["tool_manager"] = ToolServiceWrapper.from_context(ctx)
-    ctx.obj["sync_manager"] = SyncManager.from_context(ctx)
+    # ctx.obj = ctx.obj or {}
+    # ctx.obj["repo_manager"] = RepoManager()
+    # ctx.obj["tool_manager"] = ToolServiceWrapper.from_context(ctx)
+    # ctx.obj["sync_manager"] = SyncManager.from_context(ctx)
 
 
 @repo_app.command("add")
@@ -75,6 +75,7 @@ def repo_remove(
     """
     Removes a repository and all its associated tools.
     """
+    logger.debug("Removing repository: %s", repo_name)
     if scope == "both":
         logger.warning(
             "It is recommended to specify the scope, as removing from both scopes may lead to unclear removal behavior."

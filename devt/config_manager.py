@@ -28,7 +28,7 @@ class ConfigManager:
         "scope": "user",
         "log_level": "WARNING",
         "log_format": "default",
-        "auto_sync": True,
+        "auto_sync": False,
         "env_file": ".env",
     }
 

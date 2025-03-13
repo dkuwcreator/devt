@@ -24,7 +24,7 @@ def create_db_engine(registry_dir: Path) -> Any:
     """
     Creates and initializes the database engine.
     """
-    registry_dir.mkdir(parents=True, exist_ok=True)
+    registry_dir.mkdir(exist_ok=True)
     db_file = (registry_dir / "registry.db").resolve()
     db_uri = f"sqlite:///{db_file}"
     engine = create_engine(db_uri, echo=False, future=True)
@@ -481,3 +481,4 @@ class RegistryManager:
     def get_repo_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         logger.debug("Retrieving repository by name: %s", name)
         return self.repository_registry.get_repo_by_name(name)
+

@@ -29,7 +29,7 @@ class PackageManager:
         Initialize the PackageManager with a directory for storing packages.
         """
         self.tools_dir: Path = registry_dir / "tools"
-        self.tools_dir.mkdir(parents=True, exist_ok=True)
+        self.tools_dir.mkdir(exist_ok=True)
         logger.debug("Initialized PackageManager. Tools directory set to: %s", self.tools_dir)
 
     def _copy_dir(self, source: Path, destination: Path, force: bool = False) -> Path:
@@ -197,17 +197,17 @@ class PackageManager:
         Delete a package directory.
         """
         logger.info("Attempting to delete package directory: %s", package_dir)
-        if package_dir.exists():
-            try:
-                self._delete_dir(package_dir)
-                logger.info("Package directory '%s' deleted successfully.", package_dir)
-                return True
-            except Exception as e:
-                logger.exception("Error deleting package directory '%s': %s", package_dir, e)
-                return False
-        else:
-            logger.warning("Package directory '%s' does not exist. Nothing to delete.", package_dir)
-            return True
+        self._delete_dir(package_dir)
+        logger.info("Package directory '%s' deleted successfully.", package_dir)
+
+    def delete_group(self, group: str) -> None:
+        """
+        Delete all packages in the specified group.
+        """
+        logger.info("Attempting to delete all packages in group: %s", group)
+        group_dir = self.tools_dir / group
+        self._delete_dir(group_dir)
+        logger.info("Group directory '%s' deleted successfully.", group_dir)
 
     def export_package(self, package_location: Path, output_path: Path, as_zip: bool = False, force: bool = False) -> Path:
         """

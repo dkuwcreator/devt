@@ -35,8 +35,9 @@ def scopes_to_registry_dirs() -> dict:
     """
     registry_dirs = {"user": USER_REGISTRY_DIR}
     if WORKSPACE_REGISTRY_DIR.exists():
+        logger.debug("Workspace registry directory found: %s", WORKSPACE_REGISTRY_DIR)
         registry_dirs["workspace"] = WORKSPACE_REGISTRY_DIR
-    return registry_dirs
+    return dict(reversed(list(registry_dirs.items())))
 
 
 def set_user_environment_var(name: str, value: str) -> None:
@@ -167,7 +168,7 @@ def save_manifest(manifest_dir: Path, data: Dict[str, Any], type: str = "yaml") 
     if type not in ["yaml", "json"]:
         logger.error("Unsupported file type specified for manifest saving: %s", type)
         raise ValueError(f"Unsupported file type: {type}")
-    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_dir.mkdir(exist_ok=True)
     manifest_file = manifest_dir / f"manifest.{type}"
     logger.debug("Saving manifest to: %s", manifest_file)
     with manifest_file.open("w", encoding="utf-8") as f:
@@ -275,9 +276,14 @@ def determine_source(source: str) -> str:
 def on_exc(func, path, exc):
     logger.debug("Handling exception for path: %s; Exception: %s", path, exc)
     if isinstance(exc, PermissionError):
-        os.chmod(path, 0o777)
-        logger.debug("Permission error handled; changed permissions for: %s", path)
-        func(path)
+        try:
+            os.chmod(path, 0o777)
+            logger.debug("Permission error handled; changed permissions for: %s", path)
+            func(path)
+        except PermissionError as perm_exc:
+            logger.error(
+                "Permission error persists for %s after chmod attempt: %s", path, perm_exc
+            )
     elif isinstance(exc, FileNotFoundError):
         logger.debug("File not found error handled for path: %s", path)
     else:

@@ -136,7 +136,7 @@ class Script:
         logger.debug("Returning cwd_value as Path: %s", cwd_value)
         return Path(cwd_value)
 
-    def resolve_cwd(self, base_dir: Path, auto_create: bool = False) -> Path:
+    def resolve_cwd(self, base_dir: Path) -> Path:
         """
         Resolve the script's working directory relative to base_dir.
         """
@@ -148,23 +148,14 @@ class Script:
         home_dir = Path.home()
         logger.debug("Resolved working directory: %s", resolved)
         logger.debug("Home directory: %s", home_dir)
-        if not (str(resolved).startswith(str(Path.home()))):
-            logger.error(
-                "Relative path '%s' cannot be resolved outside the home directory.",
-                self.cwd,
+        # if not (str(resolved).startswith(str(Path.home()))):
+        #     logger.error(
+        #         "Relative path '%s' cannot be resolved outside the home directory.",
+        #         self.cwd,
+        #     )
+        #     raise ValueError(
+        #         "Relative path cannot be resolved outside the home directory."
             )
-            raise ValueError(
-                "Relative path cannot be resolved outside the home directory."
-            )
-        if not resolved.exists():
-            if auto_create:
-                logger.info("Auto-creating missing working directory '%s'.", resolved)
-                resolved.mkdir(parents=True, exist_ok=True)
-            else:
-                logger.error("Working directory '%s' does not exist.", resolved)
-                raise FileNotFoundError(
-                    f"Working directory '{resolved}' does not exist."
-                )
         if not resolved.is_dir():
             logger.error("Resolved path '%s' is not a directory.", resolved)
             raise NotADirectoryError(f"Resolved path '{resolved}' is not a directory.")
@@ -223,7 +214,6 @@ class Script:
         base_dir: Path,
         shell: Optional[Union[str, List[str]]] = None,
         extra_args: Optional[Union[str, List[str]]] = None,
-        auto_create_cwd: bool = False,
     ) -> Dict[str, Any]:
         """
         Prepare and return a dictionary of subprocess.run() arguments.
@@ -231,7 +221,7 @@ class Script:
         is_windows = os.name == "nt"
         is_posix = not is_windows
 
-        resolved_cwd = self.resolve_cwd(base_dir, auto_create=auto_create_cwd)
+        resolved_cwd = self.resolve_cwd(base_dir)
         env = self.resolve_env()
 
         shell = shell if shell is not None else self.shell
@@ -258,14 +248,13 @@ class Script:
         self,
         base_dir: Path,
         extra_args: Optional[Union[str, List[str]]] = None,
-        auto_create_cwd: bool = False,
     ) -> subprocess.CompletedProcess:
         """
         Execute the script using subprocess.run() with the prepared arguments.
         Raises a CommandExecutionError if the command fails.
         """
         config = self.prepare_subprocess_args(
-            base_dir, extra_args=extra_args, auto_create_cwd=auto_create_cwd
+            base_dir, extra_args=extra_args
         )
         logger.info("Executing command: %s", config["args"])
         logger.info("Working directory: %s", self.cwd)
@@ -287,7 +276,6 @@ class Script:
             base_dir,
             shell="",
             extra_args=extra_args,
-            auto_create_cwd=auto_create_cwd,
             )
             fallback_config["shell"] = True
             typer.secho(f"\n{script_border}", fg=typer.colors.CYAN)

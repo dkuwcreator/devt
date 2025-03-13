@@ -136,10 +136,11 @@ class ToolService:
         packages = self.registry.package_registry.list_packages(group=group)
         if not packages:
             logger.info("No tools found in group '%s' to remove.", group)
-            return
-
+            raise
         for pkg_info in packages:
             self.remove_tool(pkg_info["command"])
+        self.pkg_manager.delete_group(group)
+        logger.info("Removed all tools in group '%s'.", group)
 
     # -------------------------------------------
     # Tool Listing / Querying
@@ -213,7 +214,7 @@ class ToolServiceWrapper:
 
         if normalized_scope in registry_dirs:
             logger.info("Querying single scope: %s", normalized_scope)
-            return {normalized_scope: ToolService(SCOPE_TO_REGISTRY_DIR[normalized_scope])}
+            return {normalized_scope: ToolService(registry_dirs[normalized_scope])}
 
         logger.error(
             "Invalid scope provided: %s. Choose 'workspace', 'user', or 'both'.", scope
