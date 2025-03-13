@@ -21,7 +21,7 @@ from devt.constants import (
 )
 from devt.logger_manager import LoggerManager
 from devt.registry.manager import RegistryManager
-from devt.utils import find_file_type
+from devt.utils import find_file_type, scopes_to_registry_dirs
 import pprint
 
 logger = logging.getLogger(__name__)
@@ -165,9 +165,9 @@ def get_package_from_registries(
     :param scope: 'user', 'workspace', 'both', or None.
     :return: A tuple (package_dict, scope_found) or (None, None) if not found.
     """
-    scopes = get_scopes_to_query(scope)
-    for sc, registry in scopes.items():
-        pkg = registry.retrieve_package(command)
+    scopes = scopes_to_registry_dirs()
+    for sc, registry_dir in scopes.items():
+        pkg = RegistryManager(registry_dir).retrieve_package(command)
         if pkg:
             logger.info("Package '%s' found in scope '%s'.", command, sc)
             return pkg, sc
