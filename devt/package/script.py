@@ -239,7 +239,7 @@ class Script:
             )
         logger.debug("Prepared command string: %s", command_str)
 
-        final_config = {"args": command_str, "cwd": str(resolved_cwd), "env": env, "shell": False}
+        final_config = {"args": command_str, "cwd": str(resolved_cwd), "env": env, "shell": True}
         final_config.update(self.kwargs)
         logger.debug("Final subprocess configuration prepared.")
         return final_config
