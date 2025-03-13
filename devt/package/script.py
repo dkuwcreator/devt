@@ -155,7 +155,7 @@ class Script:
         #     )
         #     raise ValueError(
         #         "Relative path cannot be resolved outside the home directory."
-            )
+        #     )
         if not resolved.is_dir():
             logger.error("Resolved path '%s' is not a directory.", resolved)
             raise NotADirectoryError(f"Resolved path '{resolved}' is not a directory.")
