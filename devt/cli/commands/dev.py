@@ -24,7 +24,7 @@ from devt.config_manager import WORKSPACE_APP_DIR
 dev_app = typer.Typer(help="Tool development commands")
 logger = logging.getLogger(__name__)
 
-dev_path = ConfigManager().get_config_value("devt_lap", "devtlap")
+dev_path = ConfigManager().get_config_value("devt_lab", "devtlab")
 
 DEVELOP_DIR = WORKSPACE_APP_DIR / dev_path
 
@@ -38,6 +38,7 @@ def generate_workspace_template(command: str = "workspace") -> dict:
         ),
         "command": command,
         "dependencies": {},
+        "config": {},
         "scripts": {
             "test": f"echo 'Verifying {command} integrity... All systems operational!'"
         },
