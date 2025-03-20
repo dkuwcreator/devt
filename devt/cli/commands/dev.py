@@ -16,6 +16,7 @@ import yaml
 import typer
 
 from devt.cli.tool_service import ToolServiceWrapper
+from devt.config_manager import ConfigManager
 from devt.package.builder import PackageBuilder
 from devt.utils import find_file_type
 from devt.config_manager import WORKSPACE_APP_DIR
@@ -23,7 +24,9 @@ from devt.config_manager import WORKSPACE_APP_DIR
 dev_app = typer.Typer(help="Tool development commands")
 logger = logging.getLogger(__name__)
 
-DEVELOP_DIR = WORKSPACE_APP_DIR / "devtlap"
+dev_path = ConfigManager().get_config_value("devt_lap", "devtlap")
+
+DEVELOP_DIR = WORKSPACE_APP_DIR / dev_path
 
 def generate_workspace_template(command: str = "workspace") -> dict:
     cmd_display = command.capitalize()

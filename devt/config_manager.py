@@ -30,6 +30,7 @@ class ConfigManager:
         "log_format": "default",
         "auto_sync": False,
         "env_file": ".env",
+        "devt_lap": "devtlap",
     }
 
     # Valid options for specific config keys:
