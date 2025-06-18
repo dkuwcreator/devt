@@ -94,6 +94,15 @@ def build_executable(script: str, exe_type: str = "") -> None:
     cmd = [str(PYTHON_EXECUTABLE), "-m", "PyInstaller", "--onefile", "--name", output_name, script]
     run_command(cmd)
     logging.info(f"Build completed for {output_name} in {DIST_DIR}")
+    # # Code signing (Windows)
+    # pfx_path = os.environ.get("CODE_SIGN_PFX")
+    # if pfx_path and platform.system() == "Windows":
+    #     pfx_password = os.environ.get("CODE_SIGN_PASSWORD", "")
+    #     timestamp_url = os.environ.get("TIMESTAMP_URL", "http://timestamp.digicert.com")
+    #     exe_path = DIST_DIR / output_name
+    #     sign_cmd = ["signtool", "sign", "/f", pfx_path, "/p", pfx_password, "/tr", timestamp_url, "/td", "sha256", str(exe_path)]
+    #     run_command(sign_cmd)
+    #     logging.info(f"Signed executable {exe_path}")
 
 # ------------------------------------------------------------------------------
 # CLI Command
