@@ -11,9 +11,11 @@ import os
 # -------------------------------------------------------------------------------
 # Configuration & Logging
 # -------------------------------------------------------------------------------
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 settings = configparser.ConfigParser()
-settings.read('settings.ini')
+settings.read("settings.ini")
 
 SESSION_CWD = Path(__file__).parent
 
@@ -25,9 +27,12 @@ OUTPUT_NAME = settings.get("project", "output_name", fallback="devt")
 UPDATER_SCRIPT = settings.get("project", "updater_script", fallback="devt/installer.py")
 INIT_FILE = SESSION_CWD / OUTPUT_NAME / "__init__.py"
 VERSION_FILE = SESSION_CWD / ".version"
-PYTHON_EXECUTABLE = VENV_DIR / ("Scripts/python.exe" if platform.system() == "Windows" else "bin/python")
+PYTHON_EXECUTABLE = VENV_DIR / (
+    "Scripts/python.exe" if platform.system() == "Windows" else "bin/python"
+)
 
 app = typer.Typer()
+
 
 # ------------------------------------------------------------------------------
 # Helper Functions
@@ -35,6 +40,75 @@ app = typer.Typer()
 def run_command(cmd: list) -> None:
     logging.info("Running: " + " ".join(cmd))
     subprocess.run(cmd, check=True)
+
+
+def code_sign_executable(executable_path: Path) -> None:
+    """
+    Sign the given executable on Windows, macOS, or Linux.
+    - Windows: SignTool with CODE_SIGN_PFX, CODE_SIGN_PASSWORD, TIMESTAMP_URL
+    - macOS: codesign with CODE_SIGN_IDENTITY
+    - Linux: GPG detached signature with GPG_KEY_ID
+    """
+    system = platform.system()
+    if system == "Windows":
+        pfx_path = os.environ.get("CODE_SIGN_PFX")
+        if not pfx_path:
+            logging.info("Windows code signing skipped: CODE_SIGN_PFX not set")
+            return
+        pfx_password = os.environ.get("CODE_SIGN_PASSWORD", "")
+        timestamp_url = os.environ.get("TIMESTAMP_URL", "http://timestamp.digicert.com")
+        sign_cmd = [
+            "signtool",
+            "sign",
+            "/f",
+            pfx_path,
+            "/p",
+            pfx_password,
+            "/tr",
+            timestamp_url,
+            "/td",
+            "sha256",
+            str(executable_path),
+        ]
+        run_command(sign_cmd)
+        logging.info(f"Signed executable {executable_path} (Windows)")
+    elif system == "Darwin":
+        identity = os.environ.get("CODE_SIGN_IDENTITY")
+        if not identity:
+            logging.info("macOS code signing skipped: CODE_SIGN_IDENTITY not set")
+            return
+        sign_cmd = [
+            "codesign",
+            "--sign",
+            identity,
+            "--options",
+            "runtime",
+            str(executable_path),
+        ]
+        run_command(sign_cmd)
+        logging.info(f"Signed executable {executable_path} (macOS)")
+    elif system == "Linux":
+        gpg_key = os.environ.get("GPG_KEY_ID")
+        if not gpg_key:
+            logging.info("Linux code signing skipped: GPG_KEY_ID not set")
+            return
+        sig_path = executable_path.with_suffix(executable_path.suffix + ".sig")
+        sign_cmd = [
+            "gpg",
+            "--batch",
+            "--yes",
+            "--local-user",
+            gpg_key,
+            "--detach-sign",
+            "--output",
+            str(sig_path),
+            str(executable_path),
+        ]
+        run_command(sign_cmd)
+        logging.info(f"Signed executable {executable_path} -> {sig_path} (Linux)")
+    else:
+        logging.info(f"Code signing not supported on {system}")
+
 
 def get_output_name(exe_type: str = "") -> str:
     """
@@ -47,14 +121,13 @@ def get_output_name(exe_type: str = "") -> str:
 
     system = platform.system()
     ext = ".exe" if system == "Windows" else ""
-    platform_key = {
-        "Windows": "windows",
-        "Linux": "linux",
-        "Darwin": "macos"
-    }.get(system, system.lower())
+    platform_key = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(
+        system, system.lower()
+    )
 
     suffix = "-installer" if exe_type == "installer" else ""
     return f"{OUTPUT_NAME}-{platform_key}{suffix}{ext}"
+
 
 def ensure_venv() -> None:
     if not VENV_DIR.exists():
@@ -65,7 +138,10 @@ def ensure_venv() -> None:
         raise FileNotFoundError(f"Python executable missing: {PYTHON_EXECUTABLE}")
     logging.info("Installing dependencies...")
     run_command([str(PYTHON_EXECUTABLE), "-m", "pip", "install", "--upgrade", "pip"])
-    run_command([str(PYTHON_EXECUTABLE), "-m", "pip", "install", "-r", "requirements.txt"])
+    run_command(
+        [str(PYTHON_EXECUTABLE), "-m", "pip", "install", "-r", "requirements.txt"]
+    )
+
 
 def inject_version() -> None:
     version = os.environ.get("APP_VERSION", "dev")
@@ -83,26 +159,31 @@ def inject_version() -> None:
     else:
         logging.info("Version already set.")
 
-def build_executable(script: str, exe_type: str = "") -> None:
+
+def build_executable(script: str, exe_type: str = "", sign: bool = False) -> None:
     output_name = get_output_name(exe_type)
     logging.info(f"Building {output_name} for {platform.system()}...")
 
     if not Path(script).exists():
         logging.error(f"Missing script: {script}")
         raise FileNotFoundError(f"Installer missing: {script}")
-    
-    cmd = [str(PYTHON_EXECUTABLE), "-m", "PyInstaller", "--onefile", "--name", output_name, script]
+
+    cmd = [
+        str(PYTHON_EXECUTABLE),
+        "-m",
+        "PyInstaller",
+        "--onefile",
+        "--name",
+        output_name,
+        script,
+    ]
     run_command(cmd)
     logging.info(f"Build completed for {output_name} in {DIST_DIR}")
-    # # Code signing (Windows)
-    # pfx_path = os.environ.get("CODE_SIGN_PFX")
-    # if pfx_path and platform.system() == "Windows":
-    #     pfx_password = os.environ.get("CODE_SIGN_PASSWORD", "")
-    #     timestamp_url = os.environ.get("TIMESTAMP_URL", "http://timestamp.digicert.com")
-    #     exe_path = DIST_DIR / output_name
-    #     sign_cmd = ["signtool", "sign", "/f", pfx_path, "/p", pfx_password, "/tr", timestamp_url, "/td", "sha256", str(exe_path)]
-    #     run_command(sign_cmd)
-    #     logging.info(f"Signed executable {exe_path}")
+    # Code signing if requested
+    if sign:
+        exe_path = DIST_DIR / output_name
+        code_sign_executable(exe_path)
+
 
 # ------------------------------------------------------------------------------
 # CLI Command
@@ -110,18 +191,24 @@ def build_executable(script: str, exe_type: str = "") -> None:
 @app.command()
 def build(
     ci: bool = typer.Option(False, "--ci", help="CI mode, skip venv setup"),
-    skip_installer: bool = typer.Option(False, "--skip-installer", help="Skip installer build"),
+    skip_installer: bool = typer.Option(
+        False, "--skip-installer", help="Skip installer build"
+    ),
+    sign: bool = typer.Option(
+        False, "--sign", help="Enable code signing when CODE_SIGN_PFX is set"
+    ),
 ):
     if not ci:
         ensure_venv()
     inject_version()
-    build_executable(ENTRY_SCRIPT)
+    build_executable(ENTRY_SCRIPT, "", sign)
     if not skip_installer:
-        build_executable(UPDATER_SCRIPT, "installer")
+        build_executable(UPDATER_SCRIPT, "installer", sign)
     if DIST_DIR.exists():
         logging.info("Built files:")
         for file in DIST_DIR.iterdir():
             logging.info(file.name)
+
 
 if __name__ == "__main__":
     app()

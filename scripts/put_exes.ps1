@@ -17,7 +17,7 @@ if (-not $UserName) {
 if (-not $AccessToken) { 
     $AccessToken = $env:ACCESSTOKEN
     if (-not $AccessToken) {
-        $AccessToken = Read-Host "Enter accesstoken"
+        $AccessToken = Read-Host "Enter access token"
     }
 }
 

@@ -51,8 +51,11 @@ jobs:
         if: runner.os == 'Windows'
         env:
           APP_VERSION: ${{ github.ref_name }}
+          CODE_SIGN_PFX: ${{ secrets.CODE_SIGN_PFX }}
+          CODE_SIGN_PASSWORD: ${{ secrets.CODE_SIGN_PASSWORD }}
+          TIMESTAMP_URL: ${{ secrets.TIMESTAMP_URL }}
         shell: pwsh
-        run: .\.venv\Scripts\python.exe build.py --ci
+        run: .\.venv\Scripts\python.exe build.py --ci --sign
 
       - name: Run build script (Linux/macOS)
         if: runner.os != 'Windows'
