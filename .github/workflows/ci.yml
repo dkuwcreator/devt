@@ -1,0 +1,64 @@
+# name: CI
+
+# on:
+#   push:
+#     branches: [ main ]
+#   pull_request:
+#     branches: [ main ]
+
+# jobs:
+#   test:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v3
+
+#       - name: Set up Python
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: '3.x'
+
+#       - name: Cache virtual environment
+#         uses: actions/cache@v3
+#         with:
+#           path: .venv
+#           key: ${{ runner.os }}-venv-${{ hashFiles('**/requirements.txt') }}
+
+#       - name: Install dependencies
+#         shell: bash
+#         run: |
+#           python -m venv .venv
+#           source .venv/bin/activate
+#           pip install --upgrade pip
+#           pip install -r requirements.txt
+
+#       - name: Run tests and smoke build
+#         shell: bash
+#         env:
+#           APP_VERSION: dev
+#         run: |
+#           source .venv/bin/activate
+#           pytest
+#           python build.py --ci
+
+#   lint:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v3
+
+#       - name: Set up Python
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: '3.x'
+
+#       - name: Install linting tools
+#         shell: bash
+#         run: |
+#           pip install flake8 mypy
+
+#       - name: Run linters
+#         shell: bash
+#         run: |
+#           flake8 devt
+#           mypy devt
