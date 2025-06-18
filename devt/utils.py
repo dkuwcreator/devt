@@ -209,6 +209,7 @@ def merge_configs(*configs: Dict[str, Any]) -> Dict[str, Any]:
     """
     Merge multiple dictionaries in order, where later values overwrite earlier ones.
     If both values for a key are dictionaries, merge them shallowly.
+    If a value is None, remove the key from the result.
     """
     logger.debug("Merging %d configuration sources.", len(configs))
     result: Dict[str, Any] = {}
@@ -217,6 +218,9 @@ def merge_configs(*configs: Dict[str, Any]) -> Dict[str, Any]:
             logger.debug("Skipping empty configuration source.")
             continue
         for key, value in config.items():
+            if value is None:
+                logger.debug("Skipping key '%s' with None value.", key)
+                continue
             if (
                 key in result
                 and isinstance(result[key], dict)
